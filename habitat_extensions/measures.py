@@ -21,8 +21,6 @@ from habitat.utils.visualizations import maps as habitat_maps
 from numpy import ndarray
 
 from habitat_extensions import maps
-from habitat_extensions.task import RxRVLNCEDatasetV1
-
 cv2 = try_cv2_import()
 
 
@@ -248,18 +246,10 @@ class NDTW(Measure):
         self._config = config
         self.dtw_func = fastdtw if config.FDTW else dtw
 
-        if "{role}" in config.GT_PATH:
-            self.gt_json = {}
-            for role in RxRVLNCEDatasetV1.annotation_roles:
-                with gzip.open(
-                    config.GT_PATH.format(split=config.SPLIT, role=role), "rt"
-                ) as f:
-                    self.gt_json.update(json.load(f))
-        else:
-            with gzip.open(
-                config.GT_PATH.format(split=config.SPLIT), "rt"
-            ) as f:
-                self.gt_json = json.load(f)
+        with gzip.open(
+            config.GT_PATH.format(split=config.SPLIT), "rt"
+        ) as f:
+            self.gt_json = json.load(f)
 
         super().__init__()
 

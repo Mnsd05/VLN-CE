@@ -1,6 +1,5 @@
 from vlnce_baselines import (
     dagger_trainer,
-    ddppo_waypoint_trainer,
     recollect_trainer,
 )
 from vlnce_baselines.common import environments
