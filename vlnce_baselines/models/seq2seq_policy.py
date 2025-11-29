@@ -25,6 +25,14 @@ class Seq2SeqPolicy(ILPolicy):
         action_space: Space,
         model_config: Config,
     ):
+        """
+        Initializes the Seq2SeqPolicy.
+
+        Args:
+            observation_space (Space): The observation space of the environment.
+            action_space (Space): The action space of the environment.
+            model_config (Config): The configuration for the model.
+        """
         super().__init__(
             Seq2SeqNet(
                 observation_space=observation_space,
@@ -38,6 +46,17 @@ class Seq2SeqPolicy(ILPolicy):
     def from_config(
         cls, config: Config, observation_space: Space, action_space: Space
     ):
+        """
+        Creates a Seq2SeqPolicy instance from a configuration.
+
+        Args:
+            config (Config): The configuration.
+            observation_space (Space): The observation space.
+            action_space (Space): The action space.
+
+        Returns:
+            Seq2SeqPolicy: The initialized policy.
+        """
         config.defrost()
         config.MODEL.TORCH_GPU_ID = config.TORCH_GPU_ID
         config.freeze()
@@ -59,6 +78,14 @@ class Seq2SeqNet(Net):
     def __init__(
         self, observation_space: Space, model_config: Config, num_actions: int
     ):
+        """
+        Initializes the Seq2SeqNet.
+
+        Args:
+            observation_space (Space): The observation space.
+            model_config (Config): The model configuration.
+            num_actions (int): The number of actions.
+        """
         super().__init__()
         self.model_config = model_config
 
@@ -117,29 +144,55 @@ class Seq2SeqNet(Net):
             self.model_config.STATE_ENCODER.hidden_size, 1
         )
 
+        # Initialize the progress monitor weights
         self._init_layers()
 
+        # Set the model to training mode by default
         self.train()
 
     @property
     def output_size(self):
+        """
+        Returns the output size of the network (hidden size of the state encoder).
+        """
         return self.model_config.STATE_ENCODER.hidden_size
 
     @property
     def is_blind(self):
+        """
+        Checks if the network is blind (i.e., if visual encoders are blind).
+        """
         return self.rgb_encoder.is_blind or self.depth_encoder.is_blind
 
     @property
     def num_recurrent_layers(self):
+        """
+        Returns the number of recurrent layers in the state encoder.
+        """
         return self.state_encoder.num_recurrent_layers
 
     def _init_layers(self):
+        """
+        Initializes the layers of the network (specifically the progress monitor).
+        """
         nn.init.kaiming_normal_(
             self.progress_monitor.weight, nonlinearity="tanh"
         )
         nn.init.constant_(self.progress_monitor.bias, 0)
 
     def forward(self, observations, rnn_states, prev_actions, masks):
+        """
+        Forward pass of the network.
+
+        Args:
+            observations (dict): The observations.
+            rnn_states (torch.Tensor): The previous RNN states.
+            prev_actions (torch.Tensor): The previous actions.
+            masks (torch.Tensor): The masks for the RNN.
+
+        Returns:
+            tuple: A tuple containing the output features and the new RNN states.
+        """
         instruction_embedding = self.instruction_encoder(observations)
         depth_embedding = self.depth_encoder(observations)
         rgb_embedding = self.rgb_encoder(observations)

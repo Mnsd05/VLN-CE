@@ -25,14 +25,11 @@ class ILPolicy(Policy, metaclass=abc.ABCMeta):
 
     def act(
         self,
-        observations,
-        rnn_states,
-        prev_actions,
-        masks,
+        observations, gt_actions, padding_mask_encoder, padding_mask_decoder, isCausal,
         deterministic=False,
     ):
-        features, rnn_states = self.net(
-            observations, rnn_states, prev_actions, masks
+        features = self.net(
+            observations, gt_actions, padding_mask_encoder, padding_mask_decoder, isCausal
         )
         distribution = self.action_distribution(features)
 
@@ -41,18 +38,18 @@ class ILPolicy(Policy, metaclass=abc.ABCMeta):
         else:
             action = distribution.sample()
 
-        return action, rnn_states
+        return action
 
-    def get_value(self, *args: Any, **kwargs: Any):
-        raise NotImplementedError
+    # def get_value(self, *args: Any, **kwargs: Any):
+    #     raise NotImplementedError
 
-    def evaluate_actions(self, *args: Any, **kwargs: Any):
-        raise NotImplementedError
+    # def evaluate_actions(self, *args: Any, **kwargs: Any):
+    #     raise NotImplementedError
 
     def build_distribution(
-        self, observations, rnn_states, prev_actions, masks
+        self, observations, gt_actions, padding_mask_encoder, padding_mask_decoder, isCausal
     ) -> CustomFixedCategorical:
-        features, rnn_states = self.net(
-            observations, rnn_states, prev_actions, masks
+        features = self.net(
+            observations, gt_actions, padding_mask_encoder, padding_mask_decoder, isCausal
         )
         return self.action_distribution(features)

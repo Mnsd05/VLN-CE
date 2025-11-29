@@ -231,14 +231,16 @@ _C.MODEL.INSTRUCTION_ENCODER.dataset_vocab = (
 )
 _C.MODEL.INSTRUCTION_ENCODER.fine_tune_embeddings = False
 _C.MODEL.INSTRUCTION_ENCODER.embedding_size = 50
-_C.MODEL.INSTRUCTION_ENCODER.hidden_size = 128
+_C.MODEL.INSTRUCTION_ENCODER.hidden_size = 768
 _C.MODEL.INSTRUCTION_ENCODER.rnn_type = "LSTM"
 _C.MODEL.INSTRUCTION_ENCODER.final_state_only = True
 _C.MODEL.INSTRUCTION_ENCODER.bidirectional = False
+_C.MODEL.INSTRUCTION_ENCODER.output_size = 256
 
 _C.MODEL.RGB_ENCODER = CN()
 _C.MODEL.RGB_ENCODER.cnn_type = "TorchVisionResNet50"
-_C.MODEL.RGB_ENCODER.output_size = 256
+_C.MODEL.RGB_ENCODER.hidden_size = 768
+_C.MODEL.RGB_ENCODER.output_size = 128
 _C.MODEL.RGB_ENCODER.trainable = False
 
 _C.MODEL.DEPTH_ENCODER = CN()
@@ -251,6 +253,9 @@ _C.MODEL.DEPTH_ENCODER.ddppo_checkpoint = (
     "data/ddppo-models/gibson-2plus-resnet50.pth"
 )
 _C.MODEL.DEPTH_ENCODER.trainable = False
+
+_C.MODEL.TRANSFORMER = CN()
+_C.MODEL.TRANSFORMER_ENCODER.output_size = 256
 
 _C.MODEL.STATE_ENCODER = CN()
 _C.MODEL.STATE_ENCODER.hidden_size = 512
