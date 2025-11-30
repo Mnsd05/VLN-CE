@@ -464,7 +464,7 @@ class DaggerTrainer(BaseVLNCETrainer):
                     max_len = 0
                     for i in range(envs.num_envs):
                         ep = episodes[i]
-                        envs_obs.append([step[0] for step in ep])
+                        envs_obs.append([step[0] for step in ep] + [observations[i]])
                         envs_actions.append([step[1] for step in ep])
                         max_len = max(max_len, len(ep))
                     

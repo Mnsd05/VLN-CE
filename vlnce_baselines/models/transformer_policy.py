@@ -10,6 +10,7 @@ from habitat_baselines.common.baseline_registry import BaselineRegistry
 from habitat_baselines.rl.ppo.policy import Net
 
 from vlnce_baselines.common.aux_losses import AuxLosses
+from vlnce_baselines.models.encoders import visual_encoders
 from vlnce_baselines.models.encoders.visual_encoders import (
     VlnResnetDepthEncoder,
     VlnRGBEncoder,
@@ -104,14 +105,17 @@ class TransformerNet(Net):
         return self.model_config.Transformer.d_in
 
     @property
+    def num_recurrent_layers(self):
+        return 0
+
+    @property
     def is_blind(self):
         return self.depth_encoder.is_blind
 
     def forward(self, observations, padding_mask_encoder, padding_mask_decoder, isCausal):
         instruction = observations['instruction']
-        visual = observations['rgb_features']
         instruction_embedding = self.instruction_encoder(instruction)
-        rgb_embedding = self.rgb_encoder(visual)
+        rgb_embedding = self.rgb_encoder(observations)
         depth_embedding = self.depth_encoder(observations)
 
         if self.model_config.ablate_instruction:
@@ -120,6 +124,10 @@ class TransformerNet(Net):
             depth_embedding = depth_embedding * 0
         if self.model_config.ablate_rgb:
             rgb_embedding = rgb_embedding * 0
+
+        depth_embedding = self.depth_down_project(depth_embedding)
+        rgb_embedding = self.rgb_down_project(rgb_embedding)
+        instruction_embedding = self.instruction_down_project(instruction_embedding)
 
         visual_embedding = torch.cat(
             [depth_embedding, rgb_embedding], dim=2
@@ -329,9 +337,9 @@ class DecoderBlock(nn.Module):
         self.layer_norm2 = nn.LayerNorm(d_in)
         self.layer_norm3 = nn.LayerNorm(d_in)
 
-    def forward(self, x: Tensor, encoder_out: Tensor, padding_mask: Tensor, isCausal: bool = False) -> Tensor:
-        x = x + self.attn1(self.layer_norm1(x), padding_mask, isCausal)
-        x = x + self.attn2(self.layer_norm2(x), encoder_out, padding_mask, isCausal)
+    def forward(self, x: Tensor, encoder_out: Tensor, padding_mask_encoder: Tensor, padding_mask_decoder: Tensor, isCausal: bool = False) -> Tensor:
+        x = x + self.attn1(self.layer_norm1(x), padding_mask_decoder, isCausal)
+        x = x + self.attn2(self.layer_norm2(x), encoder_out, padding_mask_encoder, isCausal)
         x = x + self.mlp(self.layer_norm3(x))
         return x
 
@@ -352,12 +360,11 @@ class Decoder(nn.Module):
         self.register_buffer('pe', pe)
     
 
-    def forward(self, x: Tensor, encoder_out: Tensor, padding_mask: Tensor, isCausal: bool = False) -> Tensor:
+    def forward(self, x: Tensor, encoder_out: Tensor, padding_mask_encoder: Tensor, padding_mask_decoder: Tensor, isCausal: bool = False) -> Tensor:
         x = x + self.pe[:, :x.size(1)]
         for block in self.blocks:
-            x = block(x, encoder_out, padding_mask, isCausal)
+            x = block(x, encoder_out, padding_mask_encoder, padding_mask_decoder, isCausal)
         x = self.layer_norm(x)
-        # Shape (B, T, num_actions)
         return x
 
 class CustomTransformer(nn.Module):
@@ -368,5 +375,5 @@ class CustomTransformer(nn.Module):
     
     def forward(self, instruction: Tensor, visual: Tensor, padding_mask_encoder: Tensor, padding_mask_decoder: Tensor, isCausal: bool = False) -> Tensor:
         instruction = self.encoder(instruction, padding_mask_encoder)
-        features = self.decoder(visual, instruction, padding_mask_decoder, isCausal)
+        features = self.decoder(visual, instruction, padding_mask_encoder, padding_mask_decoder, isCausal)
         return features

@@ -135,5 +135,6 @@ class VlnRGBEncoder(nn.Module):
         if "rgb_features" in observations:
             x = observations["rgb_features"]
         else:
-            x = self.model.encode_image(observations)
+            x = self.model.encode_image(observations['rgb'])
+        return x
         
