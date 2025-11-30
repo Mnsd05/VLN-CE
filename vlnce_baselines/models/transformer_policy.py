@@ -91,10 +91,10 @@ class TransformerNet(Net):
         self.instruction_down_project = nn.Linear(model_config.INSTRUCTION_ENCODER.hidden_size, model_config.INSTRUCTION_ENCODER.output_size)
         self.rgb_down_project = nn.Linear(model_config.RGB_ENCODER.hidden_size, model_config.RGB_ENCODER.output_size)
         self.depth_down_project = nn.Linear(model_config.DEPTH_ENCODER.hidden_size, model_config.DEPTH_ENCODER.output_size)
-        self.transformer = CustomTransformer(model_config.Transformer.d_in,
-        model_config.Transformer.num_heads,
-        model_config.Transformer.dropout_p,
-        model_config.Transformer.num_blocks,
+        self.transformer = CustomTransformer(model_config.TRANSFORMER.d_in,
+        model_config.TRANSFORMER.num_heads,
+        model_config.TRANSFORMER.dropout_p,
+        model_config.TRANSFORMER.num_blocks,
         device)
 
         self.train()
@@ -102,12 +102,11 @@ class TransformerNet(Net):
     @property
     def output_size(self):
         # d_in = d_out
-        return self.model_config.Transformer.d_in
+        return self.model_config.TRANSFORMER.d_in
 
     @property
     def num_recurrent_layers(self):
         return 0
-
     @property
     def is_blind(self):
         return self.depth_encoder.is_blind
