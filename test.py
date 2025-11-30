@@ -25,6 +25,7 @@ import torch
 from PIL import Image
 import torchvision.transforms as T
 import torch
+from torch import Tensor
 from transformers import AutoModel
 
 # Load image
@@ -42,4 +43,8 @@ transform = T.Compose([
 image_tensor = transform(image).unsqueeze(0)  # Add batch dimension [1, 3, 224, 224]
 model = AutoModel.from_pretrained('jinaai/jina-clip-v1', trust_remote_code=True) 
 result = model.vision_model(image_tensor)       
-print(result.shape)
+
+text = model.encode_text("Donald Trump")
+
+# print cosine similarity
+print(torch.nn.functional.cosine_similarity(result, torch.as_tensor(text), dim=1))

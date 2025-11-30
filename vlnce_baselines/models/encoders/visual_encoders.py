@@ -11,7 +11,7 @@ from habitat_baselines.rl.ddppo.policy import resnet
 from habitat_baselines.rl.ddppo.policy.resnet_policy import ResNetEncoder
 from torch import Tensor
 from transformers import AutoModel
-
+import torchvision.transforms as T
 from vlnce_baselines.common.utils import single_frame_box_shape
 
 
@@ -133,9 +133,15 @@ class VlnRGBEncoder(nn.Module):
         Returns:
             [BATCH, OUTPUT_SIZE]
         """
+
         if "rgb_features" in observations:
             x = observations["rgb_features"]
         else:
-            x = self.vision_model(observations['rgb'])
+            x = observations['rgb'].float() / 255.0
+            transform = T.Compose([
+                T.Normalize(mean=[0.48145466, 0.4578275, 0.40821073],
+                            std=[0.26862954, 0.26130258, 0.27577711])
+            ])
+            x = self.vision_model(transform(x))
         return x
         

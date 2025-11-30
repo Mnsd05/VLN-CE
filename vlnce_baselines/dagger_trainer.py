@@ -270,6 +270,7 @@ class DaggerTrainer(BaseVLNCETrainer):
             B = len(envs_obs)
             max_len = max(len(seq) for seq in envs_obs)
             sensors = list(envs_obs[0][0].keys())
+            logger.info(envs_obs[0])
 
             # Prepare storage
             padded = {s: [] for s in sensors}
@@ -281,7 +282,15 @@ class DaggerTrainer(BaseVLNCETrainer):
                 # For each sensor, create padded tensor
                 for s in sensors:
                     # stack time dimension of this env
-                    obs_seq = torch.stack([step[s] for step in seq], dim=0)  # (T, ...)
+                    obs_seq = torch.stack(
+                        [
+                            step[s]
+                            if isinstance(step[s], torch.Tensor)
+                            else torch.as_tensor(step[s])
+                            for step in seq
+                        ],
+                        dim=0,
+                    )  # (T, ...)
 
                     # length difference
                     pad_len = max_len - T
@@ -331,15 +340,15 @@ class DaggerTrainer(BaseVLNCETrainer):
 
         # Reset environment
         observations = envs.reset()
-        
+
         # Extract instruction tokens
         observations = extract_instruction_tokens(
             observations, self.config.TASK_CONFIG.TASK.INSTRUCTION_SENSOR_UUID
         )
-        
+
         # Batch observations
         batch = batch_obs(observations, self.device)
-        
+
         # Apply observation transformations
         batch = apply_obs_transforms_batch(batch, self.obs_transforms)
 
@@ -360,7 +369,7 @@ class DaggerTrainer(BaseVLNCETrainer):
         beta = 0.0 if p == 0.0 else p ** data_it
 
         # ensure_unique_episodes = beta == 1.0
-        
+
         # Function to register forward hooks
         def hook_builder(tgt_tensor):
             def hook(m, i, o):
@@ -465,9 +474,9 @@ class DaggerTrainer(BaseVLNCETrainer):
                     for i in range(envs.num_envs):
                         ep = episodes[i]
                         envs_obs.append([step[0] for step in ep] + [observations[i]])
-                        envs_actions.append([step[1] for step in ep])
+                        envs_actions.append([step[1] for step in ep] + [prev_actions[i].item()])
                         max_len = max(max_len, len(ep))
-                    
+
                     sensors = list(envs_obs[0][0].keys())
                     max_len = max(len(seq) for seq in envs_obs)
                     B = len(envs_obs)
@@ -480,7 +489,7 @@ class DaggerTrainer(BaseVLNCETrainer):
                     padding_mask_encoder = valid.unsqueeze(2) * valid.unsqueeze(1)
 
                     for i in range(envs.num_envs):
-                        envs_actions[i] = _pad_helper(envs_actions[i], max_len, fill_val=-1)
+                        envs_actions[i] = _pad_helper(torch.as_tensor(envs_actions[i]), max_len, fill_val=-1)
                     actions_batch = torch.stack(envs_actions, dim=0)
                     valid = (actions_batch != -1).float()
                     padding_mask_decoder = valid.unsqueeze(2) * valid.unsqueeze(1)
@@ -538,7 +547,7 @@ class DaggerTrainer(BaseVLNCETrainer):
                 )
                 skips = skips.squeeze(-1).to(device="cpu", non_blocking=True)
                 prev_actions.copy_(actions)
-                
+
                 # Prepare the next observation
                 outputs = envs.step([a[0].item() for a in actions])
                 observations, _, dones, _ = [list(x) for x in zip(*outputs)]
