@@ -19,7 +19,7 @@ from vlnce_baselines.models.encoders.instruction_encoder import (
     InstructionEncoder,
 )
 from vlnce_baselines.models.policy import ILPolicy
-
+from habitat import logger
 
 @BaselineRegistry.register_policy
 class TransformerPolicy(ILPolicy):
@@ -117,20 +117,13 @@ class TransformerNet(Net):
             depth_embedding = depth_embedding * 0
         if self.model_config.ablate_rgb:
             rgb_embedding = rgb_embedding * 0
-        logger.info(f'instruction_embedding: {instruction_embedding.shape}')
-        logger.info(f'depth_embedding: {depth_embedding.shape}')
-        logger.info(f'rgb_embedding: {rgb_embedding.shape}')
         depth_embedding = self.depth_down_project(depth_embedding)
         rgb_embedding = self.rgb_down_project(rgb_embedding)
         instruction_embedding = self.instruction_down_project(instruction_embedding)
-        logger.info(f'After down project: {instruction_embedding.shape}')
-        logger.info(f'After down project: {depth_embedding.shape}')
-        logger.info(f'After down project: {rgb_embedding.shape}')
 
         visual_embedding = torch.cat(
             [depth_embedding, rgb_embedding], dim=2
         )
-        logger.info(f'visual_embedding: {visual_embedding.shape}')
         return self.transformer(instruction_embedding, visual_embedding, padding_mask_encoder, padding_mask_decoder, isCausal)
 
 
@@ -139,7 +132,7 @@ class DotProductAttention(nn.Module):
     def __init__(self, key_dimension: int, dropout_p: float = 0.0) -> None:
         super().__init__()
         self.scale = 1.0 / ((key_dimension) ** 0.5)
-        self.softmax = nn.Softmax(dim=3)
+        self.softmax = nn.Softmax(dim=-1)
         self.dropout = nn.Dropout(dropout_p)
 
     def forward(
@@ -160,14 +153,13 @@ class DotProductAttention(nn.Module):
         B = QKT.shape[0]
         T1 = QKT.shape[2]
         T2 = QKT.shape[3]
-
+        padding_mask = padding_mask.to(QKT.device)
         if isCausal:
             # Causal mask is for self attention only
             causal_mask = torch.tril(torch.ones((T1, T1), device=QKT.device))
             mask = padding_mask.unsqueeze(1) * causal_mask
         else:
             mask = padding_mask.unsqueeze(1)
-
         QKT = QKT.masked_fill(mask == 0, -float('inf'))
         # Shape (B, H, T1, T2)
         attn = self.softmax(QKT)
@@ -219,10 +211,10 @@ class MultiHeadSelfAttention(nn.Module):
         K = K.view(K.shape[0], K.shape[1], self.num_heads, K.shape[2] // self.num_heads).transpose(1, 2)
         # Shape (B, H, T2, d_in / H)
         V = V.view(V.shape[0], V.shape[1], self.num_heads, V.shape[2] // self.num_heads).transpose(1, 2)
-
         x = self.attn(Q, K, V, padding_mask, isCausal)
         # Shape (B, T1, d_in)
-        x = x.transpose(1, 2).contiguous().view(x.shape[0], x.shape[1], x.shape[2] * x.shape[3])
+        x = x.transpose(1, 2)
+        x = x.contiguous().view(x.shape[0], x.shape[1], x.shape[2] * x.shape[3])
         return x
 
 class MultiHeadCrossAttention(nn.Module):
@@ -269,10 +261,10 @@ class MultiHeadCrossAttention(nn.Module):
         K = K.view(K.shape[0], K.shape[1], self.num_heads, K.shape[2] // self.num_heads).transpose(1, 2)
         # Shape (B, H, T, d_in)
         V = V.view(V.shape[0], V.shape[1], self.num_heads, V.shape[2] // self.num_heads).transpose(1, 2)
-
         x = self.attn(Q, K, V, padding_mask, isCausal)
         # Shape (B, T, d_in)
-        x = x.transpose(1, 2).contiguous().view(x.shape[0], x.shape[1], x.shape[2] * x.shape[3])
+        x = x.transpose(1, 2)
+        x = x.contiguous().view(x.shape[0], x.shape[1], x.shape[2] * x.shape[3])
         return x
 
 class MLP(nn.Module):

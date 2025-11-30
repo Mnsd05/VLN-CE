@@ -469,12 +469,12 @@ class DaggerTrainer(BaseVLNCETrainer):
 
                     envs_obs = []
                     envs_actions = []
-                    max_len = 0
+                    action_idx = []
                     for i in range(envs.num_envs):
                         ep = episodes[i]
                         envs_obs.append([step[0] for step in ep] + [observations[i]])
                         envs_actions.append([step[1] for step in ep] + [prev_actions[i].item()])
-                        max_len = max(max_len, len(ep))
+                        action_idx.append(len(ep))
 
                     sensors = list(envs_obs[0][0].keys())
                     max_len = max(len(seq) for seq in envs_obs)
@@ -516,6 +516,7 @@ class DaggerTrainer(BaseVLNCETrainer):
                     history_observations, padding_mask_encoder, padding_mask_decoder, True,
                     deterministic=False,
                 )
+                actions = actions[torch.arange(envs.num_envs), action_idx]
                 # Determine whether to use expert action or not
                 actions = torch.where(
                     torch.rand_like(actions, dtype=torch.float) < beta,
