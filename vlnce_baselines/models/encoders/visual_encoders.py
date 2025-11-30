@@ -10,6 +10,7 @@ from habitat.core.simulator import Observations
 from habitat_baselines.rl.ddppo.policy import resnet
 from habitat_baselines.rl.ddppo.policy.resnet_policy import ResNetEncoder
 from torch import Tensor
+from transformers import AutoModel
 
 from vlnce_baselines.common.utils import single_frame_box_shape
 
@@ -116,8 +117,7 @@ class VlnResnetDepthEncoder(nn.Module):
 
 class VlnRGBEncoder(nn.Module):
     def __init__(
-        self,
-        config: Config,
+        self
     ) -> None:
         super().__init__()
         self.model = AutoModel.from_pretrained('jinaai/jina-clip-v1', trust_remote_code=True)

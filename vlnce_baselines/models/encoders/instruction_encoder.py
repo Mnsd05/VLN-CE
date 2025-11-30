@@ -101,17 +101,17 @@
 #                 0
 #             ].permute(0, 2, 1)
 
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoModel
 import torch
+import torch.nn as nn
+from torch import Tensor
 
 class InstructionEncoder(nn.Module):
-    def __init__(self, config: Config) -> None:
+    def __init__(self) -> None:
         """An encoder that uses CLIP to encode instructions. The output
         is the final hidden state of all the tokens.
         """
         super().__init__()
-
-        self.config = config
 
         self.model = AutoModel.from_pretrained('jinaai/jina-clip-v1', trust_remote_code=True)
         # Encoder model should be frozen
@@ -119,7 +119,9 @@ class InstructionEncoder(nn.Module):
             param.requires_grad = False
         
     def forward(self, tokens: Tensor) -> Tensor:
+        attention_mask = (tokens != 0).long()
         outputs = self.model.text_model.transformer(
-            input_ids=tokens
+            input_ids=tokens,
+            attention_mask=attention_mask
         )
         return outputs.last_hidden_state

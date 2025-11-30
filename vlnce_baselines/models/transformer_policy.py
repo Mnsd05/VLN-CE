@@ -10,9 +10,9 @@ from habitat_baselines.common.baseline_registry import BaselineRegistry
 from habitat_baselines.rl.ppo.policy import Net
 
 from vlnce_baselines.common.aux_losses import AuxLosses
-from vlnce_baselines.models.encoders.visual_encoder import (
+from vlnce_baselines.models.encoders.visual_encoders import (
     VlnResnetDepthEncoder,
-    VlnResnetRGBEncoder,
+    VlnRGBEncoder,
 )
 from vlnce_baselines.models.encoders.instruction_encoder import (
     InstructionEncoder,
@@ -29,7 +29,7 @@ class TransformerPolicy(ILPolicy):
         model_config: Config,
     ):
         super().__init__(
-            transformerNet(
+            TransformerNet(
                 observation_space=observation_space,
                 model_config=model_config,
                 num_actions=action_space.n,
@@ -60,20 +60,22 @@ class TransformerNet(Net):
     """
 
     def __init__(
-        self, observation_space: Space, model_config: Config, num_actions: int, device: torch.device
-    ):
+        self, observation_space: Space, model_config: Config, num_actions: int):
         super().__init__()
         self.model_config = model_config
-
-        # Init the instruction encoder
-        self.instruction_encoder = InstructionEncoder(
-            model_config.INSTRUCTION_ENCODER
+        device = (
+            torch.device("cuda", model_config.TORCH_GPU_ID)
+            if torch.cuda.is_available()
+            else torch.device("cpu")
         )
+        
+        # Init the instruction encoder
+        self.instruction_encoder = InstructionEncoder()
 
         # Init the depth encoder
         assert model_config.DEPTH_ENCODER.cnn_type in ["VlnResnetDepthEncoder"]
         self.depth_encoder = getattr(
-            resnet_encoders, model_config.DEPTH_ENCODER.cnn_type
+            visual_encoders, model_config.DEPTH_ENCODER.cnn_type
         )(
             observation_space,
             output_size=model_config.DEPTH_ENCODER.output_size,
@@ -91,6 +93,7 @@ class TransformerNet(Net):
         self.transformer = CustomTransformer(model_config.Transformer.d_in,
         model_config.Transformer.num_heads,
         model_config.Transformer.dropout_p,
+        model_config.Transformer.num_blocks,
         device)
 
         self.train()
@@ -128,8 +131,8 @@ class TransformerNet(Net):
 class DotProductAttention(nn.Module):
     def __init__(self, key_dimension: int, dropout_p: float = 0.0) -> None:
         super().__init__()
-        self.scale = torch.tensor(1.0 / ((key_dimension) ** 0.5))
-        self.softmax = nn.Softmax(dim=2)
+        self.scale = 1.0 / ((key_dimension) ** 0.5)
+        self.softmax = nn.Softmax(dim=3)
         self.dropout = nn.Dropout(dropout_p)
 
     def forward(
@@ -158,7 +161,7 @@ class DotProductAttention(nn.Module):
         else:
             mask = padding_mask.unsqueeze(1)
 
-        QKT = torch.masked_fill(QKT, mask == 0, -float('inf'))
+        QKT = QKT.masked_fill(mask == 0, -float('inf'))
         # Shape (B, H, T1, T2)
         attn = self.softmax(QKT)
         attn = self.dropout(attn)
@@ -284,13 +287,12 @@ class EncoderBlock(nn.Module):
         assert d_in % num_heads == 0, "d_in must be divisible by num_heads"
         self.attn = MultiHeadSelfAttention(d_in, num_heads, dropout_p)
         self.mlp = MLP(d_in, dropout_p)
-        self.layer_norm = nn.LayerNorm(d_in)
+        self.layer_norm1 = nn.LayerNorm(d_in)
+        self.layer_norm2 = nn.LayerNorm(d_in)
 
     def forward(self, x: Tensor, padding_mask: Tensor) -> Tensor:
-        x = self.layer_norm(x)
-        x = self.attn(x, padding_mask, isCausal=False)
-        x = self.layer_norm(x)
-        x = self.mlp(x)
+        x = x + self.attn(self.layer_norm1(x), padding_mask, isCausal=False)
+        x = x + self.mlp(self.layer_norm2(x))
         return x
 
 class Encoder(nn.Module):
@@ -323,15 +325,14 @@ class DecoderBlock(nn.Module):
         self.attn1 = MultiHeadSelfAttention(d_in, num_heads, dropout_p)
         self.attn2 = MultiHeadCrossAttention(d_in, num_heads, dropout_p)
         self.mlp = MLP(d_in, dropout_p)
-        self.layer_norm = nn.LayerNorm(d_in)
+        self.layer_norm1 = nn.LayerNorm(d_in)
+        self.layer_norm2 = nn.LayerNorm(d_in)
+        self.layer_norm3 = nn.LayerNorm(d_in)
 
     def forward(self, x: Tensor, encoder_out: Tensor, padding_mask: Tensor, isCausal: bool = False) -> Tensor:
-        x = self.layer_norm(x)
-        x = self.attn1(x, padding_mask, isCausal)
-        x = self.layer_norm(x)
-        x = self.attn2(x, encoder_out, padding_mask, isCausal)
-        x = self.layer_norm(x)
-        x = self.mlp(x)
+        x = x + self.attn1(self.layer_norm1(x), padding_mask, isCausal)
+        x = x + self.attn2(self.layer_norm2(x), encoder_out, padding_mask, isCausal)
+        x = x + self.mlp(self.layer_norm3(x))
         return x
 
 
