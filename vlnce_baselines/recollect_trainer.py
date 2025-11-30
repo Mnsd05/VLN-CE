@@ -110,7 +110,6 @@ class RecollectTrainer(BaseVLNCETrainer):
             purge_step=0,
         ) as writer:
 
-            AuxLosses.activate()
             batches_per_epoch = dataset.length // dataset.batch_size
 
             for epoch in range(self.start_epoch, self.config.IL.epochs):
@@ -135,6 +134,8 @@ class RecollectTrainer(BaseVLNCETrainer):
                         not_done_masks,
                         corrected_actions_batch,
                         weights_batch,
+                        padding_mask_encoder,
+                        padding_mask_decoder,
                     ) = next(diter)
 
                     observations_batch = apply_obs_transforms_batch(
@@ -148,13 +149,13 @@ class RecollectTrainer(BaseVLNCETrainer):
                     prev_actions_batch = prev_actions_batch.to(
                         device=self.device, non_blocking=True
                     )
-                    not_done_masks = not_done_masks.to(
-                        device=self.device, non_blocking=True
-                    )
                     corrected_actions_batch = corrected_actions_batch.to(
                         device=self.device, non_blocking=True
                     )
-                    weights_batch = weights_batch.to(
+                    padding_mask_encoder = padding_mask_encoder.to(
+                        device=self.device, non_blocking=True
+                    )
+                    padding_mask_decoder = padding_mask_decoder.to(
                         device=self.device, non_blocking=True
                     )
 
@@ -174,12 +175,12 @@ class RecollectTrainer(BaseVLNCETrainer):
                         loss_accumulation_scalar = 1
                         step_grad = True
 
-                    loss, action_loss, aux_loss = self._update_agent(
+                    loss = self._update_agent(
                         observations_batch,
-                        prev_actions_batch,
-                        not_done_masks,
+                        padding_mask_encoder,
+                        padding_mask_decoder,
+                        True,
                         corrected_actions_batch,
-                        weights_batch,
                         step_grad=step_grad,
                         loss_accumulation_scalar=loss_accumulation_scalar,
                     )
@@ -189,31 +190,18 @@ class RecollectTrainer(BaseVLNCETrainer):
                             {
                                 "Epoch": epoch_str,
                                 "Loss": round(loss, 4),
-                                "ActionLoss": round(action_loss, 4),
-                                "AuxLoss": round(aux_loss, 4),
                             }
                         )
                     else:
-                        if aux_loss != 0.0:
-                            aux_s = (
-                                f" [ActionLoss: {round(action_loss, 4)}]"
-                                + f" [AuxLoss: {round(aux_loss, 4)}]"
-                            )
-                        else:
-                            aux_s = ""
                         logger.info(
                             f"[Epoch: {epoch_str}] [Batch: {batch_str}]"
                             + f" [BatchTime: {round(time.time() - batch_time, 2)}s]"
                             + f" [EpochTime: {round(time.time() - epoch_time)}s]"
                             + f" [Loss: {round(loss, 4)}]"
-                            + aux_s
                         )
                     writer.add_scalar("loss", loss, self.step_id)
-                    writer.add_scalar("action_loss", action_loss, self.step_id)
-                    writer.add_scalar("aux_loss", aux_loss, self.step_id)
-                    self.step_id += 1  # noqa: SIM113
+                    self.step_id += 1
 
                 self.save_checkpoint(epoch, self.step_id)
 
-            AuxLosses.deactivate()
             dataset.close_sims()
