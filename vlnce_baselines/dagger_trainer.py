@@ -269,7 +269,7 @@ class DaggerTrainer(BaseVLNCETrainer):
             """
             B = len(envs_obs)
             max_len = max(len(seq) for seq in envs_obs)
-            sensors = list(envs_obs[0][0].keys())
+            sensors = ["rgb", "depth", "instruction"]
 
             # Prepare storage
             padded = {s: [] for s in sensors}
@@ -421,6 +421,10 @@ class DaggerTrainer(BaseVLNCETrainer):
                     # if an episode is done and not skipped, write it to lmdb
                     if dones[i] and not skips[i]:
                         ep = episodes[i]
+                        for step in ep:
+                            del step[0]["rgb"]
+                            del step[0]["depth"]
+
                         traj_obs = batch_obs(
                             [step[0] for step in ep],
                             device=torch.device("cpu"),
@@ -527,11 +531,11 @@ class DaggerTrainer(BaseVLNCETrainer):
                 for i in range(envs.num_envs):
                     if rgb_features is not None:
                         observations[i]["rgb_features"] = rgb_features[i]
-                        del observations[i]["rgb"]
+                        # del observations[i]["rgb"]
 
                     if depth_features is not None:
                         observations[i]["depth_features"] = depth_features[i]
-                        del observations[i]["depth"]
+                        # del observations[i]["depth"]
                     # Append the observation, previous action, and expert action to the episode buffer
                     episodes[i].append(
                         (
