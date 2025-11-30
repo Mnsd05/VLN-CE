@@ -117,14 +117,20 @@ class TransformerNet(Net):
             depth_embedding = depth_embedding * 0
         if self.model_config.ablate_rgb:
             rgb_embedding = rgb_embedding * 0
-
+        logger.info(f'instruction_embedding: {instruction_embedding.shape}')
+        logger.info(f'depth_embedding: {depth_embedding.shape}')
+        logger.info(f'rgb_embedding: {rgb_embedding.shape}')
         depth_embedding = self.depth_down_project(depth_embedding)
         rgb_embedding = self.rgb_down_project(rgb_embedding)
         instruction_embedding = self.instruction_down_project(instruction_embedding)
+        logger.info(f'After down project: {instruction_embedding.shape}')
+        logger.info(f'After down project: {depth_embedding.shape}')
+        logger.info(f'After down project: {rgb_embedding.shape}')
 
         visual_embedding = torch.cat(
             [depth_embedding, rgb_embedding], dim=2
         )
+        logger.info(f'visual_embedding: {visual_embedding.shape}')
         return self.transformer(instruction_embedding, visual_embedding, padding_mask_encoder, padding_mask_decoder, isCausal)
 
 

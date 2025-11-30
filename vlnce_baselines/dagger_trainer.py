@@ -270,7 +270,6 @@ class DaggerTrainer(BaseVLNCETrainer):
             B = len(envs_obs)
             max_len = max(len(seq) for seq in envs_obs)
             sensors = list(envs_obs[0][0].keys())
-            logger.info(envs_obs[0])
 
             # Prepare storage
             padded = {s: [] for s in sensors}

@@ -11,9 +11,9 @@ from habitat_baselines.rl.ddppo.policy import resnet
 from habitat_baselines.rl.ddppo.policy.resnet_policy import ResNetEncoder
 from torch import Tensor
 from transformers import AutoModel
-import torchvision.transforms as T
+import torchvision.transforms as Transformation
 from vlnce_baselines.common.utils import single_frame_box_shape
-
+import copy
 
 class VlnResnetDepthEncoder(nn.Module):
     def __init__(
@@ -61,28 +61,6 @@ class VlnResnetDepthEncoder(nn.Module):
             del ddppo_weights
             self.visual_encoder.load_state_dict(weights_dict, strict=True)
 
-        self.spatial_output = spatial_output
-
-        if not self.spatial_output:
-            self.output_shape = (output_size,)
-            self.visual_fc = nn.Sequential(
-                nn.Flatten(),
-                nn.Linear(
-                    np.prod(self.visual_encoder.output_shape), output_size
-                ),
-                nn.ReLU(True),
-            )
-        else:
-            self.spatial_embeddings = nn.Embedding(
-                self.visual_encoder.output_shape[1]
-                * self.visual_encoder.output_shape[2],
-                64,
-            )
-
-            self.output_shape = list(self.visual_encoder.output_shape)
-            self.output_shape[0] += self.spatial_embeddings.embedding_dim
-            self.output_shape = tuple(self.output_shape)
-
     def forward(self, observations: Observations) -> Tensor:
         """
         Args:
@@ -93,27 +71,12 @@ class VlnResnetDepthEncoder(nn.Module):
         if "depth_features" in observations:
             x = observations["depth_features"]
         else:
-            x = self.visual_encoder(observations)
-
-        if self.spatial_output:
-            b, c, h, w = x.size()
-
-            spatial_features = (
-                self.spatial_embeddings(
-                    torch.arange(
-                        0,
-                        self.spatial_embeddings.num_embeddings,
-                        device=x.device,
-                        dtype=torch.long,
-                    )
-                )
-                .view(1, -1, h, w)
-                .expand(b, self.spatial_embeddings.embedding_dim, h, w)
-            )
-
-            return torch.cat([x, spatial_features], dim=1)
-        else:
-            return self.visual_fc(x)
+            copy_observations =  observations.copy()
+            B, T, H, W, C = copy_observations['depth'].shape
+            copy_observations['depth'] = copy_observations['depth'].reshape(B * T, H, W, C)
+            x = self.visual_encoder(copy_observations)
+            x = x.reshape(B, T, -1)
+        return x
 
 class VlnRGBEncoder(nn.Module):
     def __init__(
@@ -137,12 +100,14 @@ class VlnRGBEncoder(nn.Module):
         if "rgb_features" in observations:
             x = observations["rgb_features"]
         else:
-            x = x.permute(0, 1, 4, 2, 3)
             x = observations['rgb'].float() / 255.0
-            transform = T.Compose([
-                T.Normalize(mean=[0.48145466, 0.4578275, 0.40821073],
+            x = x.permute(0,1,4,2,3)
+            B, T, C, H, W = x.shape
+            x = x.reshape(B * T, C, H, W)
+            transform = Transformation.Compose([
+                Transformation.Normalize(mean=[0.48145466, 0.4578275, 0.40821073],
                             std=[0.26862954, 0.26130258, 0.27577711])
             ])
             x = self.vision_model(transform(x))
+            x = x.reshape(B, T, -1)
         return x
-        
