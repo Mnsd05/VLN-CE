@@ -109,7 +109,7 @@ class TransformerNet(Net):
         return 0
     @property
     def is_blind(self):
-        return self.depth_encoder.is_blind
+        return False
 
     def forward(self, observations, padding_mask_encoder, padding_mask_decoder, isCausal):
         instruction = observations['instruction']
@@ -326,7 +326,7 @@ class Encoder(nn.Module):
         return x
 
 class DecoderBlock(nn.Module):
-    def __init__(self, d_in, num_actions, num_heads, dropout_p, device) -> None:
+    def __init__(self, d_in, num_heads, dropout_p) -> None:
         super().__init__()
         assert d_in % num_heads == 0, "d_in must be divisible by num_heads"
         self.attn1 = MultiHeadSelfAttention(d_in, num_heads, dropout_p)
