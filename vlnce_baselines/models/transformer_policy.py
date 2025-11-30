@@ -85,9 +85,10 @@ class TransformerNet(Net):
 
         # Init the RGB visual encoder
         self.rgb_encoder = VlnRGBEncoder()
-
+        self.instruction_down_project = nn.Linear(model_config.INSTRUCTION_ENCODER.hidden_size, model_config.INSTRUCTION_ENCODER.output_size)
+        self.rgb_down_project = nn.Linear(model_config.RGB_ENCODER.hidden_size, model_config.RGB_ENCODER.output_size)
+        self.depth_down_project = nn.Linear(model_config.DEPTH_ENCODER.hidden_size, model_config.DEPTH_ENCODER.output_size)
         self.transformer = CustomTransformer(model_config.Transformer.d_in,
-        model_config.Transformer.num_actions,
         model_config.Transformer.num_heads,
         model_config.Transformer.dropout_p,
         device)
@@ -96,6 +97,7 @@ class TransformerNet(Net):
 
     @property
     def output_size(self):
+        # d_in = d_out
         return self.model_config.Transformer.d_in
 
     @property
@@ -334,11 +336,10 @@ class DecoderBlock(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, d_in, num_actions, num_heads, dropout_p, num_blocks, device) -> None:
+    def __init__(self, d_in, num_heads, dropout_p, num_blocks, device) -> None:
         super().__init__()
-        self.blocks = nn.ModuleList([DecoderBlock(d_in, num_actions, num_heads, dropout_p) for _ in range(num_blocks)])
+        self.blocks = nn.ModuleList([DecoderBlock(d_in, num_heads, dropout_p) for _ in range(num_blocks)])
         self.layer_norm = nn.LayerNorm(d_in)
-        self.action_head = nn.Linear(d_in, num_actions)
         max_len = 500
         d_model = d_in
         pe = torch.zeros(max_len, d_model, device=device)
@@ -356,16 +357,15 @@ class Decoder(nn.Module):
             x = block(x, encoder_out, padding_mask, isCausal)
         x = self.layer_norm(x)
         # Shape (B, T, num_actions)
-        x = self.action_head(x)
         return x
 
 class CustomTransformer(nn.Module):
-    def __init__(self, d_in, num_actions, num_heads, dropout_p, num_blocks, device) -> None:
+    def __init__(self, d_in, num_heads, dropout_p, num_blocks, device) -> None:
         super().__init__()
         self.encoder = Encoder(d_in, num_heads, dropout_p, num_blocks, device)
-        self.decoder = Decoder(d_in, num_actions, num_heads, dropout_p, num_blocks, device)
+        self.decoder = Decoder(d_in, num_heads, dropout_p, num_blocks, device)
     
     def forward(self, instruction: Tensor, visual: Tensor, padding_mask_encoder: Tensor, padding_mask_decoder: Tensor, isCausal: bool = False) -> Tensor:
         instruction = self.encoder(instruction, padding_mask_encoder)
-        logits = self.decoder(visual, instruction, padding_mask_decoder, isCausal)
-        return logits
+        features = self.decoder(visual, instruction, padding_mask_decoder, isCausal)
+        return features

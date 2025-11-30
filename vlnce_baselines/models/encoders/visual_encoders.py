@@ -114,8 +114,6 @@ class VlnResnetDepthEncoder(nn.Module):
         else:
             return self.visual_fc(x)
 
-
-
 class VlnRGBEncoder(nn.Module):
     def __init__(
         self,
@@ -127,8 +125,6 @@ class VlnRGBEncoder(nn.Module):
         for param in self.model.parameters():
             param.requires_grad = False
 
-        self.down_project = nn.Linear(self.model.config.hidden_size, self.model.config.output_size)
-
     def forward(self, observations: Observations) -> Tensor:
         """
         Args:
@@ -139,5 +135,5 @@ class VlnRGBEncoder(nn.Module):
         if "rgb_features" in observations:
             x = observations["rgb_features"]
         else:
-            x = self.down_project(self.model.encode_image(observations))
+            x = self.model.encode_image(observations)
         

@@ -118,10 +118,8 @@ class InstructionEncoder(nn.Module):
         for param in self.model.parameters():
             param.requires_grad = False
         
-        self.down_project = nn.Linear(self.config.hidden_size, self.config.output_size)
-
     def forward(self, tokens: Tensor) -> Tensor:
         outputs = self.model.text_model.transformer(
             input_ids=tokens
         )
-        return self.down_project(outputs.last_hidden_state)
+        return outputs.last_hidden_state

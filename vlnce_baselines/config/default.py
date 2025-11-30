@@ -245,6 +245,7 @@ _C.MODEL.RGB_ENCODER.trainable = False
 
 _C.MODEL.DEPTH_ENCODER = CN()
 _C.MODEL.DEPTH_ENCODER.cnn_type = "VlnResnetDepthEncoder"
+_C.MODEL.DEPTH_ENCODER.hidden_size = 2048
 _C.MODEL.DEPTH_ENCODER.output_size = 128
 # type of resnet to use
 _C.MODEL.DEPTH_ENCODER.backbone = "resnet50"
@@ -255,7 +256,7 @@ _C.MODEL.DEPTH_ENCODER.ddppo_checkpoint = (
 _C.MODEL.DEPTH_ENCODER.trainable = False
 
 _C.MODEL.TRANSFORMER = CN()
-_C.MODEL.TRANSFORMER_ENCODER.output_size = 256
+_C.MODEL.TRANSFORMER_ENCODER.d_in = 256
 
 _C.MODEL.STATE_ENCODER = CN()
 _C.MODEL.STATE_ENCODER.hidden_size = 512
