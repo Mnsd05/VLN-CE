@@ -120,9 +120,10 @@ class VlnRGBEncoder(nn.Module):
         self
     ) -> None:
         super().__init__()
-        self.model = AutoModel.from_pretrained('jinaai/jina-clip-v1', trust_remote_code=True)
+        model = AutoModel.from_pretrained('jinaai/jina-clip-v1', trust_remote_code=True)
+        self.vision_model = model.vision_model
         # Encoder model should be frozen
-        for param in self.model.parameters():
+        for param in self.vision_model.parameters():
             param.requires_grad = False
 
     def forward(self, observations: Observations) -> Tensor:
@@ -135,6 +136,6 @@ class VlnRGBEncoder(nn.Module):
         if "rgb_features" in observations:
             x = observations["rgb_features"]
         else:
-            x = self.model.encode_image(observations['rgb'])
+            x = self.vision_model(observations['rgb'])
         return x
         

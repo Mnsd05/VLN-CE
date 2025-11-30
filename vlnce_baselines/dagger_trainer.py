@@ -373,7 +373,7 @@ class DaggerTrainer(BaseVLNCETrainer):
         rgb_hook = None
         if not self.config.MODEL.RGB_ENCODER.trainable:
             rgb_features = torch.zeros((1,), device="cpu")
-            rgb_hook = self.policy.net.rgb_encoder.down_project.register_forward_hook(
+            rgb_hook = self.policy.net.rgb_encoder.vision_model.register_forward_hook(
                 hook_builder(rgb_features)
             )
 

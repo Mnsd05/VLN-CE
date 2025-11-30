@@ -64,11 +64,6 @@ class TransformerNet(Net):
         self, observation_space: Space, model_config: Config, num_actions: int):
         super().__init__()
         self.model_config = model_config
-        device = (
-            torch.device("cuda", model_config.TORCH_GPU_ID)
-            if torch.cuda.is_available()
-            else torch.device("cpu")
-        )
         
         # Init the instruction encoder
         self.instruction_encoder = InstructionEncoder()
@@ -94,8 +89,7 @@ class TransformerNet(Net):
         self.transformer = CustomTransformer(model_config.TRANSFORMER.d_in,
         model_config.TRANSFORMER.num_heads,
         model_config.TRANSFORMER.dropout_p,
-        model_config.TRANSFORMER.num_blocks,
-        device)
+        model_config.TRANSFORMER.num_blocks)
 
         self.train()
 
@@ -303,16 +297,16 @@ class EncoderBlock(nn.Module):
         return x
 
 class Encoder(nn.Module):
-    def __init__(self, d_in, num_heads, dropout_p, num_blocks, device) -> None:
+    def __init__(self, d_in, num_heads, dropout_p, num_blocks) -> None:
         super().__init__()
         self.blocks = nn.ModuleList([EncoderBlock(d_in, num_heads, dropout_p) for _ in range(num_blocks)])
         self.layer_norm = nn.LayerNorm(d_in)
 
         max_len = 200
         d_model = d_in
-        pe = torch.zeros(max_len, d_model, device=device)
-        position = torch.arange(0, max_len, dtype=torch.float, device=device).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2, dtype=torch.float, device=device) * (-math.log(10000.0) / d_model))
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2, dtype=torch.float) * (-math.log(10000.0) / d_model))
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0)
@@ -344,15 +338,15 @@ class DecoderBlock(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, d_in, num_heads, dropout_p, num_blocks, device) -> None:
+    def __init__(self, d_in, num_heads, dropout_p, num_blocks) -> None:
         super().__init__()
         self.blocks = nn.ModuleList([DecoderBlock(d_in, num_heads, dropout_p) for _ in range(num_blocks)])
         self.layer_norm = nn.LayerNorm(d_in)
         max_len = 500
         d_model = d_in
-        pe = torch.zeros(max_len, d_model, device=device)
-        position = torch.arange(0, max_len, dtype=torch.float, device=device).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2, dtype=torch.float, device=device) * (-math.log(10000.0) / d_model))
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2, dtype=torch.float) * (-math.log(10000.0) / d_model))
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0)
@@ -367,10 +361,10 @@ class Decoder(nn.Module):
         return x
 
 class CustomTransformer(nn.Module):
-    def __init__(self, d_in, num_heads, dropout_p, num_blocks, device) -> None:
+    def __init__(self, d_in, num_heads, dropout_p, num_blocks) -> None:
         super().__init__()
-        self.encoder = Encoder(d_in, num_heads, dropout_p, num_blocks, device)
-        self.decoder = Decoder(d_in, num_heads, dropout_p, num_blocks, device)
+        self.encoder = Encoder(d_in, num_heads, dropout_p, num_blocks)
+        self.decoder = Decoder(d_in, num_heads, dropout_p, num_blocks)
     
     def forward(self, instruction: Tensor, visual: Tensor, padding_mask_encoder: Tensor, padding_mask_decoder: Tensor, isCausal: bool = False) -> Tensor:
         instruction = self.encoder(instruction, padding_mask_encoder)

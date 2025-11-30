@@ -113,14 +113,15 @@ class InstructionEncoder(nn.Module):
         """
         super().__init__()
 
-        self.model = AutoModel.from_pretrained('jinaai/jina-clip-v1', trust_remote_code=True)
+        model = AutoModel.from_pretrained('jinaai/jina-clip-v1', trust_remote_code=True)
+        text_model = model.text_model.transformer
         # Encoder model should be frozen
-        for param in self.model.parameters():
+        for param in text_model.parameters():
             param.requires_grad = False
         
     def forward(self, tokens: Tensor) -> Tensor:
         attention_mask = (tokens != 0).long()
-        outputs = self.model.text_model.transformer(
+        outputs = text_model(
             input_ids=tokens,
             attention_mask=attention_mask
         )
