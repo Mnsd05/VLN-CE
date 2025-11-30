@@ -329,12 +329,12 @@ class DecoderBlock(nn.Module):
         self.layer_norm3 = nn.LayerNorm(d_in)
 
     def forward(self, x: Tensor, encoder_out: Tensor, padding_mask_encoder: Tensor, padding_mask_decoder: Tensor, isCausal: bool = False) -> Tensor:
-        x = x + self.attn1(self.layer_norm1(x), padding_mask_decoder, isCausal = True)
+        x = x + self.attn1(self.layer_norm1(x), padding_mask_decoder, isCausal)
         B, T1, T1 = padding_mask_encoder.shape
         B, T2, T2 = padding_mask_decoder.shape
         padding_mask_encoder = padding_mask_encoder[:, 0:1, :]
         padding_mask_encoder = padding_mask_encoder.expand(B, T2, T1)
-        x = x + self.attn2(self.layer_norm2(x), encoder_out, padding_mask_encoder, isCausal = False)
+        x = x + self.attn2(self.layer_norm2(x), encoder_out, padding_mask_encoder)
         x = x + self.mlp(self.layer_norm3(x))
         return x
 
