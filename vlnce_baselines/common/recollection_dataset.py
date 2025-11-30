@@ -14,7 +14,7 @@ from habitat_baselines.common.obs_transformers import (
     get_active_obs_transforms,
 )
 
-from habitat_extensions.task import ALL_ROLES_MASK, RxRVLNCEDatasetV1
+from habitat_extensions.task import ALL_ROLES_MASK
 from vlnce_baselines.common.env_utils import construct_envs
 from vlnce_baselines.common.utils import extract_instruction_tokens
 
@@ -112,27 +112,10 @@ class TeacherRecollectionDataset(torch.utils.data.IterableDataset):
         trajectories = defaultdict(list)
         split = self.config.TASK_CONFIG.DATASET.SPLIT
 
-        if "{role}" in self.config.IL.RECOLLECT_TRAINER.gt_file:
-            gt_data = {}
-            for role in RxRVLNCEDatasetV1.annotation_roles:
-                if (
-                    ALL_ROLES_MASK not in self.config.TASK_CONFIG.DATASET.ROLES
-                    and role not in self.config.TASK_CONFIG.DATASET.ROLES
-                ):
-                    continue
-
-                with gzip.open(
-                    self.config.IL.RECOLLECT_TRAINER.gt_file.format(
-                        split=split, role=role
-                    ),
-                    "rt",
-                ) as f:
-                    gt_data.update(json.load(f))
-        else:
-            with gzip.open(
-                self.config.IL.RECOLLECT_TRAINER.gt_path.format(split=split)
-            ) as f:
-                gt_data = json.load(f)
+        with gzip.open(
+            self.config.IL.RECOLLECT_TRAINER.gt_path.format(split=split)
+        ) as f:
+            gt_data = json.load(f)
 
         t = (
             tqdm.tqdm(gt_data.items(), "GT Collection")

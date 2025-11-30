@@ -134,40 +134,33 @@ class BaseVLNCETrainer(BaseILTrainer):
     def _update_agent(
         self,
         observations,
-        prev_actions,
-        not_done_masks,
+        padding_mask_encoder,
+        padding_mask_decoder,
+        isCausal,
         corrected_actions,
-        weights,
         step_grad: bool = True,
         loss_accumulation_scalar: int = 1,
     ):
         T, N = corrected_actions.size()
 
-        recurrent_hidden_states = torch.zeros(
-            N,
-            self.policy.net.num_recurrent_layers,
-            self.config.MODEL.STATE_ENCODER.hidden_size,
-            device=self.device,
-        )
-
-        AuxLosses.clear()
+        # AuxLosses.clear()
 
         distribution = self.policy.build_distribution(
-            observations, recurrent_hidden_states, prev_actions, not_done_masks
+            observations, padding_mask_encoder, padding_mask_decoder, isCausal
         )
 
         logits = distribution.logits
-        logits = logits.view(T, N, -1)
+        logits = logits.view(N, T, -1)
 
-        action_loss = F.cross_entropy(
-            logits.permute(0, 2, 1), corrected_actions, reduction="none"
+        loss = F.cross_entropy(
+            logits, corrected_actions, ignore_index=-1, reduction="none"
         )
-        action_loss = ((weights * action_loss).sum(0) / weights.sum(0)).mean()
+        # action_loss = ((weights * action_loss).sum(0) / weights.sum(0)).mean()
 
-        aux_mask = (weights > 0).view(-1)
-        aux_loss = AuxLosses.reduce(aux_mask)
+        # aux_mask = (weights > 0).view(-1)
+        # aux_loss = AuxLosses.reduce(aux_mask)
 
-        loss = action_loss + aux_loss
+        # loss = action_loss + aux_loss
         loss = loss / loss_accumulation_scalar
         loss.backward()
 
@@ -175,9 +168,10 @@ class BaseVLNCETrainer(BaseILTrainer):
             self.optimizer.step()
             self.optimizer.zero_grad()
 
-        if isinstance(aux_loss, torch.Tensor):
-            aux_loss = aux_loss.item()
-        return loss.item(), action_loss.item(), aux_loss
+        # if isinstance(aux_loss, torch.Tensor):
+        #     aux_loss = aux_loss.item()
+        # return loss.item(), action_loss.item(), aux_loss
+        return loss.item()
 
     @staticmethod
     def _pause_envs(
