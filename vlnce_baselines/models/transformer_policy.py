@@ -102,7 +102,7 @@ class TransformerNet(Net):
     def is_blind(self):
         return self.depth_encoder.is_blind
 
-    def forward(self, observations, gt_actions, padding_mask_encoder, padding_mask_decoder, isCausal):
+    def forward(self, observations, padding_mask_encoder, padding_mask_decoder, isCausal):
         instruction = observations['instruction']
         visual = observations['rgb_features']
         instruction_embedding = self.instruction_encoder(instruction)
@@ -119,7 +119,7 @@ class TransformerNet(Net):
         visual_embedding = torch.cat(
             [depth_embedding, rgb_embedding], dim=2
         )
-        return self.transformer(instruction_embedding, visual_embedding, gt_actions, padding_mask_encoder, padding_mask_decoder, isCausal)
+        return self.transformer(instruction_embedding, visual_embedding, padding_mask_encoder, padding_mask_decoder, isCausal)
 
 
 
@@ -365,7 +365,7 @@ class CustomTransformer(nn.Module):
         self.encoder = Encoder(d_in, num_heads, dropout_p, num_blocks, device)
         self.decoder = Decoder(d_in, num_actions, num_heads, dropout_p, num_blocks, device)
     
-    def forward(self, instruction: Tensor, visual: Tensor, gt_actions: Tensor, padding_mask_encoder: Tensor, padding_mask_decoder: Tensor, isCausal: bool = False) -> Tensor:
+    def forward(self, instruction: Tensor, visual: Tensor, padding_mask_encoder: Tensor, padding_mask_decoder: Tensor, isCausal: bool = False) -> Tensor:
         instruction = self.encoder(instruction, padding_mask_encoder)
         logits = self.decoder(visual, instruction, padding_mask_decoder, isCausal)
         return logits

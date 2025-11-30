@@ -89,15 +89,13 @@ def collate_fn(batch):
 
     for sensor in observations_batch:
         observations_batch[sensor] = torch.stack(
-            observations_batch[sensor], dim=1
-        )
-        observations_batch[sensor] = observations_batch[sensor].view(
-            -1, *observations_batch[sensor].size()[2:]
+            observations_batch[sensor], dim=0
         )
 
-    prev_actions_batch = torch.stack(prev_actions_batch, dim=1)
-    corrected_actions_batch = torch.stack(corrected_actions_batch, dim=1)
-    weights_batch = torch.stack(weights_batch, dim=1)
+    observations_batch["instruction"] = observations_batch["instruction"][:, 0, :]
+    prev_actions_batch = torch.stack(prev_actions_batch, dim=0)
+    corrected_actions_batch = torch.stack(corrected_actions_batch, dim=0)
+    weights_batch = torch.stack(weights_batch, dim=0)
     not_done_masks = torch.ones_like(
         corrected_actions_batch, dtype=torch.uint8
     )
@@ -105,12 +103,30 @@ def collate_fn(batch):
 
     observations_batch = ObservationsDict(observations_batch)
 
+    instructions = observations_batch['instruction']
+    valid = (instructions != 0).float()
+    padding_mask_encoder = valid.unsqueeze(2) * valid.unsqueeze(1)
+
+    valid = (corrected_actions_batch != -1).float()
+    padding_mask_decoder = valid.unsqueeze(2) * valid.unsqueeze(1)
+    '''
+    Shape:
+    observations_batch: (B, T, ...)
+    prev_actions_batch: (B, T)
+    not_done_masks: (B)
+    corrected_actions_batch: (B, T)
+    weights_batch: (B, T)
+    padding_mask_encoder: (B, 200, 200)
+    padding_mask_decoder: (B, T, T)
+    '''
     return (
         observations_batch,
-        prev_actions_batch.view(-1, 1),
-        not_done_masks.view(-1, 1),
+        prev_actions_batch,
+        not_done_masks,
         corrected_actions_batch,
         weights_batch,
+        padding_mask_encoder,
+        padding_mask_decoder,
     )
 
 
@@ -246,6 +262,53 @@ class DaggerTrainer(BaseVLNCETrainer):
             self._make_results_dir()
 
     def _update_dataset(self, data_it):
+        def pad_obs_batch(envs_obs, padding_value=0.0):
+            """
+            envs_obs: List[List[Dict[sensor, tensor]]]
+                    Length B, each element is a sequence of length Ti
+            """
+            B = len(envs_obs)
+            max_len = max(len(seq) for seq in envs_obs)
+            sensors = list(envs_obs[0][0].keys())
+
+            # Prepare storage
+            padded = {s: [] for s in sensors}
+
+            for b in range(B):
+                seq = envs_obs[b]
+                T = len(seq)
+
+                # For each sensor, create padded tensor
+                for s in sensors:
+                    # stack time dimension of this env
+                    obs_seq = torch.stack([step[s] for step in seq], dim=0)  # (T, ...)
+
+                    # length difference
+                    pad_len = max_len - T
+                    if pad_len > 0:
+                        pad_shape = (pad_len, *obs_seq.shape[1:])
+                        pad = torch.full(pad_shape, padding_value, dtype=obs_seq.dtype, device=obs_seq.device)
+                        obs_seq = torch.cat([obs_seq, pad], dim=0)  # → (max_len, ...)
+
+                    padded[s].append(obs_seq)
+
+            # Stack across batch → (B, max_len, ...)
+            for s in sensors:
+                padded[s] = torch.stack(padded[s], dim=0)
+
+            return padded
+
+        def _pad_helper(t, max_len, fill_val=0):
+            pad_amount = max_len - t.size(0)
+            if pad_amount == 0:
+                return t
+
+            pad = torch.full_like(t[0:1], fill_val).expand(
+                pad_amount, *t.size()[1:]
+            )
+            return torch.cat([t, pad], dim=0)
+
+
         if torch.cuda.is_available():
             with torch.cuda.device(self.device):
                 torch.cuda.empty_cache()
@@ -253,32 +316,39 @@ class DaggerTrainer(BaseVLNCETrainer):
         envs = construct_envs(self.config, get_env_class(self.config.ENV_NAME))
         expert_uuid = self.config.IL.DAGGER.expert_policy_sensor_uuid
 
-        rnn_states = torch.zeros(
-            envs.num_envs,
-            self.policy.net.num_recurrent_layers,
-            self.config.MODEL.STATE_ENCODER.hidden_size,
-            device=self.device,
-        )
+        # Initialize previous actions
         prev_actions = torch.zeros(
             envs.num_envs,
             1,
             device=self.device,
             dtype=torch.long,
         )
+
+        # Initialize not done masks
         not_done_masks = torch.zeros(
             envs.num_envs, 1, dtype=torch.uint8, device=self.device
         )
 
+        # Reset environment
         observations = envs.reset()
+        
+        # Extract instruction tokens
         observations = extract_instruction_tokens(
             observations, self.config.TASK_CONFIG.TASK.INSTRUCTION_SENSOR_UUID
         )
+        
+        # Batch observations
         batch = batch_obs(observations, self.device)
+        
+        # Apply observation transformations
         batch = apply_obs_transforms_batch(batch, self.obs_transforms)
 
+        # Buffer for storing episodes
         episodes = [[] for _ in range(envs.num_envs)]
+        # Buffer for skipping episodes if trajectory is not valid
         skips = [False for _ in range(envs.num_envs)]
         # Populate dones with False initially
+        # This is used to mark the end of an episode
         dones = [False for _ in range(envs.num_envs)]
 
         # https://arxiv.org/pdf/1011.0686.pdf
@@ -289,19 +359,21 @@ class DaggerTrainer(BaseVLNCETrainer):
         # in Python 0.0 ** 0.0 == 1.0, but we want 0.0
         beta = 0.0 if p == 0.0 else p ** data_it
 
-        ensure_unique_episodes = beta == 1.0
-
+        # ensure_unique_episodes = beta == 1.0
+        
+        # Function to register forward hooks
         def hook_builder(tgt_tensor):
             def hook(m, i, o):
                 tgt_tensor.set_(o.cpu())
 
             return hook
 
+        # Register forward hooks for RGB and depth encoders
         rgb_features = None
         rgb_hook = None
         if not self.config.MODEL.RGB_ENCODER.trainable:
             rgb_features = torch.zeros((1,), device="cpu")
-            rgb_hook = self.policy.net.rgb_encoder.cnn.register_forward_hook(
+            rgb_hook = self.policy.net.rgb_encoder.down_project.register_forward_hook(
                 hook_builder(rgb_features)
             )
 
@@ -315,11 +387,12 @@ class DaggerTrainer(BaseVLNCETrainer):
 
         collected_eps = 0
         ep_ids_collected = None
-        if ensure_unique_episodes:
-            ep_ids_collected = {
-                ep.episode_id for ep in envs.current_episodes()
-            }
+        # if ensure_unique_episodes:
+        #     ep_ids_collected = {
+        #         ep.episode_id for ep in envs.current_episodes()
+        #     }
 
+        # Start collecting episodes
         with tqdm.tqdm(
             total=self.config.IL.DAGGER.update_size, dynamic_ncols=True
         ) as pbar, lmdb.open(
@@ -332,11 +405,12 @@ class DaggerTrainer(BaseVLNCETrainer):
             while collected_eps < self.config.IL.DAGGER.update_size:
                 current_episodes = None
                 envs_to_pause = None
-                if ensure_unique_episodes:
-                    envs_to_pause = []
-                    current_episodes = envs.current_episodes()
+                # if ensure_unique_episodes:
+                #     envs_to_pause = []
+                #     current_episodes = envs.current_episodes()
 
                 for i in range(envs.num_envs):
+                    # if an episode is done and not skipped, write it to lmdb
                     if dones[i] and not skips[i]:
                         ep = episodes[i]
                         traj_obs = batch_obs(
@@ -371,46 +445,70 @@ class DaggerTrainer(BaseVLNCETrainer):
                             txn.commit()
                             txn = lmdb_env.begin(write=True)
 
-                        if ensure_unique_episodes:
-                            if (
-                                current_episodes[i].episode_id
-                                in ep_ids_collected
-                            ):
-                                envs_to_pause.append(i)
-                            else:
-                                ep_ids_collected.add(
-                                    current_episodes[i].episode_id
-                                )
+                        # if ensure_unique_episodes:
+                        #     if (
+                        #         current_episodes[i].episode_id
+                        #         in ep_ids_collected
+                        #     ):
+                        #         envs_to_pause.append(i)
+                        #     else:
+                        #         ep_ids_collected.add(
+                        #             current_episodes[i].episode_id
+                        #         )
 
                     if dones[i]:
                         episodes[i] = []
 
-                if ensure_unique_episodes:
-                    (
-                        envs,
-                        rnn_states,
-                        not_done_masks,
-                        prev_actions,
-                        batch,
-                        _,
-                    ) = self._pause_envs(
-                        envs_to_pause,
-                        envs,
-                        rnn_states,
-                        not_done_masks,
-                        prev_actions,
-                        batch,
-                    )
-                    if envs.num_envs == 0:
-                        break
+                    envs_obs = []
+                    envs_actions = []
+                    max_len = 0
+                    for i in range(envs.num_envs):
+                        ep = episodes[i]
+                        envs_obs.append([step[0] for step in ep])
+                        envs_actions.append([step[1] for step in ep])
+                        max_len = max(max_len, len(ep))
+                    
+                    sensors = list(envs_obs[0][0].keys())
+                    max_len = max(len(seq) for seq in envs_obs)
+                    B = len(envs_obs)
+                    history_observations = pad_obs_batch(envs_obs)
+                    history_observations = {
+                        k: v.to(self.device) for k, v in history_observations.items()
+                    }
+                    history_observations["instruction"] = history_observations["instruction"][:, 0, :]
+                    valid = (history_observations["instruction"]!= -1).float()
+                    padding_mask_encoder = valid.unsqueeze(2) * valid.unsqueeze(1)
 
-                actions, rnn_states = self.policy.act(
-                    batch,
-                    rnn_states,
-                    prev_actions,
-                    not_done_masks,
+                    for i in range(envs.num_envs):
+                        envs_actions[i] = _pad_helper(envs_actions[i], max_len, fill_val=-1)
+                    actions_batch = torch.stack(envs_actions, dim=0)
+                    valid = (actions_batch != -1).float()
+                    padding_mask_decoder = valid.unsqueeze(2) * valid.unsqueeze(1)
+                # if ensure_unique_episodes:
+                #     (
+                #         envs,
+                #         rnn_states,
+                #         not_done_masks,
+                #         prev_actions,
+                #         batch,
+                #         _,
+                #     ) = self._pause_envs(
+                #         envs_to_pause,
+                #         envs,
+                #         rnn_states,
+                #         not_done_masks,
+                #         prev_actions,
+                #         batch,
+                #     )
+                #     if envs.num_envs == 0:
+                #         break
+
+                # Perform actions
+                actions = self.policy.act(
+                    history_observations, padding_mask_encoder, padding_mask_decoder, True,
                     deterministic=False,
                 )
+                # Determine whether to use expert action or not
                 actions = torch.where(
                     torch.rand_like(actions, dtype=torch.float) < beta,
                     batch[expert_uuid].long(),
@@ -425,7 +523,7 @@ class DaggerTrainer(BaseVLNCETrainer):
                     if depth_features is not None:
                         observations[i]["depth_features"] = depth_features[i]
                         del observations[i]["depth"]
-
+                    # Append the observation, previous action, and expert action to the episode buffer
                     episodes[i].append(
                         (
                             observations[i],
@@ -440,9 +538,11 @@ class DaggerTrainer(BaseVLNCETrainer):
                 )
                 skips = skips.squeeze(-1).to(device="cpu", non_blocking=True)
                 prev_actions.copy_(actions)
-
+                
+                # Prepare the next observation
                 outputs = envs.step([a[0].item() for a in actions])
                 observations, _, dones, _ = [list(x) for x in zip(*outputs)]
+                # Extract instruction tokens
                 observations = extract_instruction_tokens(
                     observations,
                     self.config.TASK_CONFIG.TASK.INSTRUCTION_SENSOR_UUID,
@@ -539,7 +639,7 @@ class DaggerTrainer(BaseVLNCETrainer):
                     num_workers=3,
                 )
 
-                AuxLosses.activate()
+                # AuxLosses.activate()
                 for epoch in tqdm.trange(
                     self.config.IL.epochs, dynamic_ncols=True
                 ):
@@ -555,6 +655,8 @@ class DaggerTrainer(BaseVLNCETrainer):
                             not_done_masks,
                             corrected_actions_batch,
                             weights_batch,
+                            padding_mask_encoder,
+                            padding_mask_decoder,
                         ) = batch
 
                         observations_batch = {
@@ -565,26 +667,24 @@ class DaggerTrainer(BaseVLNCETrainer):
                             )
                             for k, v in observations_batch.items()
                         }
+                        padding_mask_encoder = padding_mask_encoder.to(
+                            device=self.device, non_blocking=True
+                        )
+                        padding_mask_decoder = padding_mask_decoder.to(
+                            device=self.device, non_blocking=True
+                        )
 
-                        loss, action_loss, aux_loss = self._update_agent(
+                        loss = self._update_agent(
                             observations_batch,
-                            prev_actions_batch.to(
-                                device=self.device, non_blocking=True
-                            ),
-                            not_done_masks.to(
-                                device=self.device, non_blocking=True
-                            ),
+                            padding_mask_encoder,
+                            padding_mask_decoder,
+                            True,
                             corrected_actions_batch.to(
-                                device=self.device, non_blocking=True
-                            ),
-                            weights_batch.to(
                                 device=self.device, non_blocking=True
                             ),
                         )
 
                         logger.info(f"train_loss: {loss}")
-                        logger.info(f"train_action_loss: {action_loss}")
-                        logger.info(f"train_aux_loss: {aux_loss}")
                         logger.info(f"Batches processed: {step_id}.")
                         logger.info(
                             f"On DAgger iter {dagger_it}, Epoch {epoch}."
@@ -592,19 +692,8 @@ class DaggerTrainer(BaseVLNCETrainer):
                         writer.add_scalar(
                             f"train_loss_iter_{dagger_it}", loss, step_id
                         )
-                        writer.add_scalar(
-                            f"train_action_loss_iter_{dagger_it}",
-                            action_loss,
-                            step_id,
-                        )
-                        writer.add_scalar(
-                            f"train_aux_loss_iter_{dagger_it}",
-                            aux_loss,
-                            step_id,
-                        )
                         step_id += 1  # noqa: SIM113
 
                     self.save_checkpoint(
                         f"ckpt.{dagger_it * self.config.IL.epochs + epoch}.pth"
                     )
-                AuxLosses.deactivate()

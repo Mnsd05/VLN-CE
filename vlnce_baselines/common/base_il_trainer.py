@@ -146,7 +146,7 @@ class BaseVLNCETrainer(BaseILTrainer):
         # AuxLosses.clear()
 
         distribution = self.policy.build_distribution(
-            observations, corrected_actions, padding_mask_encoder, padding_mask_decoder, isCausal
+            observations, padding_mask_encoder, padding_mask_decoder, isCausal
         )
 
         logits = distribution.logits

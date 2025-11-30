@@ -119,11 +119,9 @@ class InstructionEncoder(nn.Module):
             param.requires_grad = False
         
         self.down_project = nn.Linear(self.config.hidden_size, self.config.output_size)
-        self.tokenizer = AutoTokenizer.from_pretrained('jinaai/jina-clip-v1', trust_remote_code=True)
 
-    def forward(self, instructions: List[str]) -> Tensor:
-        tokenized_inputs = self.tokenizer(instructions, return_tensors="pt", padding=True)
+    def forward(self, tokens: Tensor) -> Tensor:
         outputs = self.model.text_model.transformer(
-            **tokenized_inputs
+            input_ids=tokens
         )
         return self.down_project(outputs.last_hidden_state)

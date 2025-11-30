@@ -26,7 +26,7 @@ def extract_instruction_tokens(
             instruction = observations[i][
                 instruction_sensor_uuid
             ][text_uuid]
-            tokenized_inputs = tokenizer(instruction, return_tensors="pt", padding=True)
+            tokenized_inputs = tokenizer(instruction)
             observations[i][instruction_sensor_uuid] = tokenized_inputs['input_ids']
         else:
             break

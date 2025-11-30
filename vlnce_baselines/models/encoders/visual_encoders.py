@@ -136,4 +136,8 @@ class VlnRGBEncoder(nn.Module):
         Returns:
             [BATCH, OUTPUT_SIZE]
         """
-        return self.down_project(self.model.encode_image(observations))
+        if "rgb_features" in observations:
+            x = observations["rgb_features"]
+        else:
+            x = self.down_project(self.model.encode_image(observations))
+        
