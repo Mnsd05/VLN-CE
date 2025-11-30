@@ -137,6 +137,7 @@ class VlnRGBEncoder(nn.Module):
         if "rgb_features" in observations:
             x = observations["rgb_features"]
         else:
+            x = x.permute(0, 1, 4, 2, 3)
             x = observations['rgb'].float() / 255.0
             transform = T.Compose([
                 T.Normalize(mean=[0.48145466, 0.4578275, 0.40821073],
