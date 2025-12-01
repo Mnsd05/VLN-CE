@@ -143,9 +143,9 @@ class BaseVLNCETrainer(BaseILTrainer):
         instruction_embedding,
         rgb_embedding,
         depth_embedding,
-        padding_mask_encoder,
-        padding_mask_decoder,
-        isCausal,
+        src_key_padding_mask,
+        tgt_key_padding_mask,
+        tgt_mask,
         corrected_actions,
         step_grad: bool = True,
         loss_accumulation_scalar: int = 1,
@@ -157,9 +157,9 @@ class BaseVLNCETrainer(BaseILTrainer):
             instruction_embedding,
             rgb_embedding,
             depth_embedding,
-            padding_mask_encoder,
-            padding_mask_decoder,
-            isCausal,
+            src_key_padding_mask,
+            tgt_key_padding_mask,
+            tgt_mask,
         )
 
         logits = distribution.logits

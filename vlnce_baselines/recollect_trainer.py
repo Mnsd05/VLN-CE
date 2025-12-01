@@ -156,8 +156,9 @@ class RecollectTrainer(BaseVLNCETrainer):
                         not_done_masks,
                         corrected_actions_batch,
                         weights_batch,
-                        padding_mask_encoder,
-                        padding_mask_decoder,
+                        src_key_padding_mask,
+                        tgt_key_padding_mask,
+                        tgt_mask,
                     ) = next(diter)
 
                     observations_batch = apply_obs_transforms_batch(
@@ -174,10 +175,13 @@ class RecollectTrainer(BaseVLNCETrainer):
                     corrected_actions_batch = corrected_actions_batch.to(
                         device=self.device, non_blocking=True
                     )
-                    padding_mask_encoder = padding_mask_encoder.to(
+                    src_key_padding_mask = src_key_padding_mask.to(
                         device=self.device, non_blocking=True
                     )
-                    padding_mask_decoder = padding_mask_decoder.to(
+                    tgt_key_padding_mask = tgt_key_padding_mask.to(
+                        device=self.device, non_blocking=True
+                    )
+                    tgt_mask = tgt_mask.to(
                         device=self.device, non_blocking=True
                     )
 
@@ -205,9 +209,9 @@ class RecollectTrainer(BaseVLNCETrainer):
                         instruction_embedding,
                         rgb_embedding,
                         depth_embedding,
-                        padding_mask_encoder,
-                        padding_mask_decoder,
-                        True,
+                        src_key_padding_mask,
+                        tgt_key_padding_mask,
+                        tgt_mask,
                         corrected_actions_batch,
                         step_grad=step_grad,
                         loss_accumulation_scalar=loss_accumulation_scalar,

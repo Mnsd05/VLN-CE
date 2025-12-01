@@ -22,6 +22,7 @@ from vlnce_baselines.common.aux_losses import AuxLosses
 from vlnce_baselines.common.base_il_trainer import BaseVLNCETrainer
 from vlnce_baselines.common.env_utils import construct_envs
 from vlnce_baselines.common.utils import extract_instruction_tokens
+import torch.nn as nn
 
 with warnings.catch_warnings():
     warnings.filterwarnings("ignore", category=FutureWarning)
@@ -104,11 +105,10 @@ def collate_fn(batch):
     observations_batch = ObservationsDict(observations_batch)
         
     instructions = observations_batch['instruction']
-    valid = (instructions != 0).float()
-    padding_mask_encoder = valid.unsqueeze(2) * valid.unsqueeze(1)
+    src_key_padding_mask = (instructions == 0)
 
-    valid = (corrected_actions_batch != -1).float()
-    padding_mask_decoder = valid.unsqueeze(2) * valid.unsqueeze(1)
+    tgt_key_padding_mask = (corrected_actions_batch == -1)
+    tgt_mask = nn.Transformer.generate_square_subsequent_mask(max_traj_len)
     '''
     Shape:
     observations_batch: (B, T, ...)
@@ -125,8 +125,9 @@ def collate_fn(batch):
         not_done_masks,
         corrected_actions_batch,
         weights_batch,
-        padding_mask_encoder,
-        padding_mask_decoder,
+        src_key_padding_mask,
+        tgt_key_padding_mask,
+        tgt_mask,
     )
 
 
