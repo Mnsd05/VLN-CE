@@ -133,7 +133,9 @@ class BaseVLNCETrainer(BaseILTrainer):
 
     def _update_agent(
         self,
-        observations,
+        instruction_embedding,
+        rgb_embedding,
+        depth_embedding,
         padding_mask_encoder,
         padding_mask_decoder,
         isCausal,
@@ -146,14 +148,19 @@ class BaseVLNCETrainer(BaseILTrainer):
         # AuxLosses.clear()
 
         distribution = self.policy.build_distribution(
-            observations, padding_mask_encoder, padding_mask_decoder, isCausal
+            instruction_embedding,
+            rgb_embedding,
+            depth_embedding,
+            padding_mask_encoder,
+            padding_mask_decoder,
+            isCausal,
         )
 
         logits = distribution.logits
-        logits = logits.view(N, T, -1)
-
+        logits = logits.view(N * T, -1)
+        corrected_actions = corrected_actions.T.reshape(N * T)
         loss = F.cross_entropy(
-            logits, corrected_actions, ignore_index=-1, reduction="none"
+            logits, corrected_actions, ignore_index=-1, reduction="mean"
         )
         # action_loss = ((weights * action_loss).sum(0) / weights.sum(0)).mean()
 

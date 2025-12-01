@@ -8,16 +8,6 @@ from gym import Space
 from habitat import Config
 from habitat_baselines.common.baseline_registry import BaselineRegistry
 from habitat_baselines.rl.ppo.policy import Net
-
-from vlnce_baselines.common.aux_losses import AuxLosses
-from vlnce_baselines.models.encoders import visual_encoders
-from vlnce_baselines.models.encoders.visual_encoders import (
-    VlnResnetDepthEncoder,
-    VlnRGBEncoder,
-)
-from vlnce_baselines.models.encoders.instruction_encoder import (
-    InstructionEncoder,
-)
 from vlnce_baselines.models.policy import ILPolicy
 from habitat import logger
 
@@ -64,25 +54,6 @@ class TransformerNet(Net):
         self, observation_space: Space, model_config: Config, num_actions: int):
         super().__init__()
         self.model_config = model_config
-        
-        # Init the instruction encoder
-        self.instruction_encoder = InstructionEncoder()
-
-        # Init the depth encoder
-        assert model_config.DEPTH_ENCODER.cnn_type in ["VlnResnetDepthEncoder"]
-        self.depth_encoder = getattr(
-            visual_encoders, model_config.DEPTH_ENCODER.cnn_type
-        )(
-            observation_space,
-            output_size=model_config.DEPTH_ENCODER.output_size,
-            checkpoint=model_config.DEPTH_ENCODER.ddppo_checkpoint,
-            backbone=model_config.DEPTH_ENCODER.backbone,
-            trainable=model_config.DEPTH_ENCODER.trainable,
-            spatial_output=False,
-        )
-
-        # Init the RGB visual encoder
-        self.rgb_encoder = VlnRGBEncoder()
         self.instruction_down_project = nn.Linear(model_config.INSTRUCTION_ENCODER.hidden_size, model_config.INSTRUCTION_ENCODER.output_size)
         self.rgb_down_project = nn.Linear(model_config.RGB_ENCODER.hidden_size, model_config.RGB_ENCODER.output_size)
         self.depth_down_project = nn.Linear(model_config.DEPTH_ENCODER.hidden_size, model_config.DEPTH_ENCODER.output_size)
@@ -105,18 +76,7 @@ class TransformerNet(Net):
     def is_blind(self):
         return False
 
-    def forward(self, observations, padding_mask_encoder, padding_mask_decoder, isCausal):
-        instruction = observations['instruction']
-        instruction_embedding = self.instruction_encoder(instruction)
-        rgb_embedding = self.rgb_encoder(observations)
-        depth_embedding = self.depth_encoder(observations)
-
-        if self.model_config.ablate_instruction:
-            instruction_embedding = instruction_embedding * 0
-        if self.model_config.ablate_depth:
-            depth_embedding = depth_embedding * 0
-        if self.model_config.ablate_rgb:
-            rgb_embedding = rgb_embedding * 0
+    def forward(self, instruction_embedding, rgb_embedding, depth_embedding, padding_mask_encoder, padding_mask_decoder, isCausal):
         depth_embedding = self.depth_down_project(depth_embedding)
         rgb_embedding = self.rgb_down_project(rgb_embedding)
         instruction_embedding = self.instruction_down_project(instruction_embedding)
@@ -160,7 +120,7 @@ class DotProductAttention(nn.Module):
             mask = padding_mask.unsqueeze(1) * causal_mask
         else:
             mask = padding_mask.unsqueeze(1)
-        QKT = QKT.masked_fill(mask == 0, -float('inf'))
+        QKT = QKT.masked_fill(mask == 0, -float('1e9'))
         # Shape (B, H, T1, T2)
         attn = self.softmax(QKT)
         attn = self.dropout(attn)
@@ -329,12 +289,12 @@ class DecoderBlock(nn.Module):
         self.layer_norm3 = nn.LayerNorm(d_in)
 
     def forward(self, x: Tensor, encoder_out: Tensor, padding_mask_encoder: Tensor, padding_mask_decoder: Tensor, isCausal: bool = False) -> Tensor:
-        x = x + self.attn1(self.layer_norm1(x), padding_mask_decoder, isCausal)
+        x = x + self.attn1(self.layer_norm1(x), padding_mask_decoder, isCausal = True)
         B, T1, T1 = padding_mask_encoder.shape
         B, T2, T2 = padding_mask_decoder.shape
         padding_mask_encoder = padding_mask_encoder[:, 0:1, :]
         padding_mask_encoder = padding_mask_encoder.expand(B, T2, T1)
-        x = x + self.attn2(self.layer_norm2(x), encoder_out, padding_mask_encoder)
+        x = x + self.attn2(self.layer_norm2(x), encoder_out, padding_mask_encoder, isCausal = False)
         x = x + self.mlp(self.layer_norm3(x))
         return x
 

@@ -1,9 +1,10 @@
 import os
+
 import time
 import warnings
 from typing import List
 
-import torch
+import torch        
 import tqdm
 from habitat import logger
 from habitat_baselines.common.baseline_registry import baseline_registry
@@ -19,6 +20,13 @@ from vlnce_baselines.common.recollection_dataset import (
     TeacherRecollectionDataset,
 )
 from vlnce_baselines.dagger_trainer import collate_fn
+from vlnce_baselines.models.encoders.visual_encoders import (
+    VlnResnetDepthEncoder,
+    VlnRGBEncoder,
+)
+from vlnce_baselines.models.encoders.instruction_encoder import (
+    InstructionEncoder,
+)
 
 with warnings.catch_warnings():
     warnings.filterwarnings("ignore", category=FutureWarning)
@@ -68,13 +76,27 @@ class RecollectTrainer(BaseVLNCETrainer):
         self.config.IL.RECOLLECT_TRAINER.gt_path = (
             self.config.TASK_CONFIG.TASK.NDTW.GT_PATH
         )
-        self.config.use_pbar = not is_slurm_batch_job()
+        self.config.use_pbar = True  # not is_slurm_batch_job()
         self.config.TASK_CONFIG.ENVIRONMENT.ITERATOR_OPTIONS.MAX_SCENE_REPEAT_STEPS = (
             -1
         )
         self.config.freeze()
 
         dataset = TeacherRecollectionDataset(self.config)
+        # Init the instruction encoder
+        instruction_encoder = InstructionEncoder().to(self.device)
+        # Init the depth encoderer"
+        depth_encoder = VlnResnetDepthEncoder(
+            dataset.observation_space,
+            output_size=self.config.MODEL.DEPTH_ENCODER.output_size,
+            checkpoint=self.config.MODEL.DEPTH_ENCODER.ddppo_checkpoint,
+            backbone=self.config.MODEL.DEPTH_ENCODER.backbone,
+            trainable=self.config.MODEL.DEPTH_ENCODER.trainable,
+            spatial_output=False,
+        ).to(self.device)
+        # Init the RGB visual encoder
+        rgb_encoder = VlnRGBEncoder().to(self.device)
+        
         diter = iter(
             torch.utils.data.DataLoader(
                 dataset,
@@ -159,6 +181,10 @@ class RecollectTrainer(BaseVLNCETrainer):
                         device=self.device, non_blocking=True
                     )
 
+                    instruction = observations_batch['instruction']
+                    instruction_embedding = instruction_encoder(instruction)
+                    rgb_embedding = rgb_encoder(observations_batch)
+                    depth_embedding = depth_encoder(observations_batch)
                     # gradient accumulation
                     if (
                         self.config.IL.RECOLLECT_TRAINER.effective_batch_size
@@ -176,7 +202,9 @@ class RecollectTrainer(BaseVLNCETrainer):
                         step_grad = True
 
                     loss = self._update_agent(
-                        observations_batch,
+                        instruction_embedding,
+                        rgb_embedding,
+                        depth_embedding,
                         padding_mask_encoder,
                         padding_mask_decoder,
                         True,

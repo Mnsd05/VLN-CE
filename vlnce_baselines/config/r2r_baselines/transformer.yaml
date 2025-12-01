@@ -5,8 +5,8 @@ TORCH_GPU_ID: 0
 NUM_ENVIRONMENTS: 1
 TENSORBOARD_DIR: data/tensorboard_dirs/transformer
 CHECKPOINT_FOLDER: data/checkpoints/transformer
-EVAL_CKPT_PATH_DIR: data/checkpoints/seq2seq
-RESULTS_DIR: data/checkpoints/seq2seq/evals
+EVAL_CKPT_PATH_DIR: data/checkpoints/transformer
+RESULTS_DIR: data/checkpoints/transformer/evals
 
 EVAL:
   USE_CKPT_CONFIG: False
@@ -14,8 +14,8 @@ EVAL:
   EPISODE_COUNT: -1
 
 IL:
-  epochs: 15
-  batch_size: 5
+  epochs: 5
+  batch_size: 8
 
   RECOLLECT_TRAINER:
     gt_file:
