@@ -143,8 +143,7 @@ class BaseVLNCETrainer(BaseILTrainer):
         step_grad: bool = True,
         loss_accumulation_scalar: int = 1,
     ):
-        T, N = corrected_actions.size()
-
+        N, T = corrected_actions.size()
         # AuxLosses.clear()
 
         distribution = self.policy.build_distribution(
@@ -158,7 +157,7 @@ class BaseVLNCETrainer(BaseILTrainer):
 
         logits = distribution.logits
         logits = logits.view(N * T, -1)
-        corrected_actions = corrected_actions.T.reshape(N * T)
+        corrected_actions = corrected_actions.reshape(N * T)
         loss = F.cross_entropy(
             logits, corrected_actions, ignore_index=-1, reduction="mean"
         )
@@ -284,7 +283,8 @@ class BaseVLNCETrainer(BaseILTrainer):
         )
         batch = batch_obs(observations, self.device)
         batch = apply_obs_transforms_batch(batch, self.obs_transforms)
-
+        for k, v in batch.items():
+            logger.info(f"Sensor: {k}, shape: {v.shape}")
         rnn_states = torch.zeros(
             envs.num_envs,
             self.policy.net.num_recurrent_layers,

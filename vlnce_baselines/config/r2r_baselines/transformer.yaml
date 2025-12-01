@@ -16,6 +16,9 @@ EVAL:
 IL:
   epochs: 5
   batch_size: 8
+  load_from_ckpt: True
+  ckpt_to_load: "data/checkpoints/transformer/ckpt.0.pth"  # Replace with your specific checkpoint path
+  is_requeue: True  # Set to True to load optimizer state, epoch, and step_id to continue training
 
   RECOLLECT_TRAINER:
     gt_file:

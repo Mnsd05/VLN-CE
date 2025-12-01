@@ -102,7 +102,7 @@ def collate_fn(batch):
     not_done_masks[0] = 0
 
     observations_batch = ObservationsDict(observations_batch)
-
+        
     instructions = observations_batch['instruction']
     valid = (instructions != 0).float()
     padding_mask_encoder = valid.unsqueeze(2) * valid.unsqueeze(1)
