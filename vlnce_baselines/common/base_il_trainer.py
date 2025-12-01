@@ -28,6 +28,13 @@ from habitat_extensions.utils import generate_video, observations_to_image
 from vlnce_baselines.common.aux_losses import AuxLosses
 from vlnce_baselines.common.env_utils import construct_envs_auto_reset_false
 from vlnce_baselines.common.utils import extract_instruction_tokens
+from vlnce_baselines.models.encoders.visual_encoders import (
+    VlnResnetDepthEncoder,
+    VlnRGBEncoder,
+)
+from vlnce_baselines.models.encoders.instruction_encoder import (
+    InstructionEncoder,
+)
 
 with warnings.catch_warnings():
     warnings.filterwarnings("ignore", category=FutureWarning)
@@ -183,10 +190,11 @@ class BaseVLNCETrainer(BaseILTrainer):
     def _pause_envs(
         envs_to_pause,
         envs,
-        recurrent_hidden_states,
-        not_done_masks,
-        prev_actions,
         batch,
+        rgb_history,
+        depth_history,
+        instruction_embedding,
+        padding_mask_encoder,
         rgb_frames=None,
     ):
         # pausing envs with no new episode
@@ -197,9 +205,11 @@ class BaseVLNCETrainer(BaseILTrainer):
                 envs.pause_at(idx)
 
             # indexing along the batch dimensions
-            recurrent_hidden_states = recurrent_hidden_states[state_index]
-            not_done_masks = not_done_masks[state_index]
-            prev_actions = prev_actions[state_index]
+            rgb_history = rgb_history[state_index]
+            depth_history = depth_history[state_index]
+            instruction_embedding = instruction_embedding[state_index]
+            padding_mask_encoder = padding_mask_encoder[state_index]
+            padding_mask_decoder = padding_mask_decoder[state_index]
 
             for k, v in batch.items():
                 batch[k] = v[state_index]
@@ -209,18 +219,27 @@ class BaseVLNCETrainer(BaseILTrainer):
 
         return (
             envs,
-            recurrent_hidden_states,
-            not_done_masks,
-            prev_actions,
             batch,
+            rgb_history,
+            depth_history,
+            instruction_embedding,
+            padding_mask_encoder,
             rgb_frames,
         )
+
+    # Pad history to the same length
+    def _pad_history(self, history):
+        non_zero_mask = history.sum(dim=-1) != 0
+        seq_length = non_zero_mask.sum(dim=-1)
+        max_seq_length = seq_length.max()
+        return history[:, :max_seq_length]        
 
     def _eval_checkpoint(
         self,
         checkpoint_path: str,
         writer: TensorboardWriter,
         checkpoint_index: int = 0,
+        isCausal: bool = True,
     ) -> None:
         """Evaluates a single checkpoint.
 
@@ -248,7 +267,7 @@ class BaseVLNCETrainer(BaseILTrainer):
             -1
         )
         config.IL.ckpt_to_load = checkpoint_path
-        config.use_pbar = not is_slurm_batch_job()
+        config.use_pbar = True
 
         if len(config.VIDEO_OPTION) > 0:
             config.TASK_CONFIG.TASK.MEASUREMENTS.append("TOP_DOWN_MAP_VLNCE")
@@ -277,25 +296,43 @@ class BaseVLNCETrainer(BaseILTrainer):
         )
         self.policy.eval()
 
+        instruction_encoder = InstructionEncoder().to(self.device)
+        # Init the depth encoderer"
+        depth_encoder = VlnResnetDepthEncoder(
+            observation_space,
+            output_size=self.config.MODEL.DEPTH_ENCODER.output_size,
+            checkpoint=self.config.MODEL.DEPTH_ENCODER.ddppo_checkpoint,
+            backbone=self.config.MODEL.DEPTH_ENCODER.backbone,
+            trainable=self.config.MODEL.DEPTH_ENCODER.trainable,
+            spatial_output=False,
+        ).to(self.device)
+        # Init the RGB visual encoder
+        rgb_encoder = VlnRGBEncoder().to(self.device)
+        
         observations = envs.reset()
         observations = extract_instruction_tokens(
             observations, self.config.TASK_CONFIG.TASK.INSTRUCTION_SENSOR_UUID
         )
         batch = batch_obs(observations, self.device)
         batch = apply_obs_transforms_batch(batch, self.obs_transforms)
-        for k, v in batch.items():
-            logger.info(f"Sensor: {k}, shape: {v.shape}")
-        rnn_states = torch.zeros(
+
+        valid = (batch["instruction"] != 0).float()
+        padding_mask_encoder = valid.unsqueeze(2) * valid.unsqueeze(1)
+        padding_mask_encoder = padding_mask_encoder.to(self.device)
+
+        instruction_embedding = instruction_encoder(batch["instruction"])
+        rgb_history = torch.empty(
             envs.num_envs,
-            self.policy.net.num_recurrent_layers,
-            config.MODEL.STATE_ENCODER.hidden_size,
+            0,
+            config.MODEL.RGB_ENCODER.hidden_size,
             device=self.device,
         )
-        prev_actions = torch.zeros(
-            envs.num_envs, 1, device=self.device, dtype=torch.long
-        )
-        not_done_masks = torch.zeros(
-            envs.num_envs, 1, dtype=torch.uint8, device=self.device
+
+        depth_history = torch.empty(
+            envs.num_envs,
+            0,
+            config.MODEL.DEPTH_ENCODER.hidden_size,
+            device=self.device,
         )
 
         stats_episodes = {}
@@ -318,25 +355,27 @@ class BaseVLNCETrainer(BaseILTrainer):
 
         while envs.num_envs > 0 and len(stats_episodes) < num_eps:
             current_episodes = envs.current_episodes()
-
+            # Update history here
+            rgb_embedding = rgb_encoder(batch)
+            depth_embedding = depth_encoder(batch)
+            rgb_history = torch.cat([rgb_history, rgb_embedding.unsqueeze(1)], dim=1)
+            depth_history = torch.cat([depth_history, depth_embedding.unsqueeze(1)], dim=1)
+            valid = (rgb_history.sum(dim=-1) != 0).float()
+            padding_mask_decoder = valid.unsqueeze(2) * valid.unsqueeze(1)
+            # Need to find padding mask for encoder and decoder 
             with torch.no_grad():
-                actions, rnn_states = self.policy.act(
-                    batch,
-                    rnn_states,
-                    prev_actions,
-                    not_done_masks,
+                actions = self.policy.act(
+                    instruction_embedding,
+                    rgb_history,
+                    depth_history,
+                    padding_mask_encoder,
+                    padding_mask_decoder,
+                    isCausal,
                     deterministic=not config.EVAL.SAMPLE,
                 )
-                prev_actions.copy_(actions)
 
             outputs = envs.step([a[0].item() for a in actions])
             observations, _, dones, infos = [list(x) for x in zip(*outputs)]
-
-            not_done_masks = torch.tensor(
-                [[0] if done else [1] for done in dones],
-                dtype=torch.uint8,
-                device=self.device,
-            )
 
             # reset envs and observations if necessary
             for i in range(envs.num_envs):
@@ -353,7 +392,17 @@ class BaseVLNCETrainer(BaseILTrainer):
                 ep_id = current_episodes[i].episode_id
                 stats_episodes[ep_id] = infos[i]
                 observations[i] = envs.reset_at(i)[0]
-                prev_actions[i] = torch.zeros(1, dtype=torch.long)
+
+                # Handle new episode
+                instruction_embedding[i] = instruction_encoder(batch["instruction"][i].unsqueeze(0))
+                padding_mask_encoder[i] = torch.zeros((200, 200)).to(self.device)
+                len_non_zero = (batch["instruction"][i] != 0).sum()
+                padding_mask_encoder[i, :len_non_zero, :len_non_zero] = 1
+
+                rgb_history[i] = 0
+                depth_history[i] = 0
+                rgb_history = self._pad_history(rgb_history)
+                depth_history = self._pad_history(depth_history)
 
                 if config.use_pbar:
                     pbar.update()
@@ -395,18 +444,20 @@ class BaseVLNCETrainer(BaseILTrainer):
 
             (
                 envs,
-                rnn_states,
-                not_done_masks,
-                prev_actions,
                 batch,
+                rgb_history,
+                depth_history,
+                instruction_embedding,
+                padding_mask_encoder,
                 rgb_frames,
             ) = self._pause_envs(
                 envs_to_pause,
                 envs,
-                rnn_states,
-                not_done_masks,
-                prev_actions,
                 batch,
+                rgb_history,
+                depth_history,
+                instruction_embedding,
+                padding_mask_encoder,
                 rgb_frames,
             )
 
