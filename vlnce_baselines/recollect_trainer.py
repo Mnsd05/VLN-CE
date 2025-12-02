@@ -84,7 +84,7 @@ class RecollectTrainer(BaseVLNCETrainer):
 
         dataset = TeacherRecollectionDataset(self.config)
         # Init the instruction encoder
-        instruction_encoder = InstructionEncoder().to(self.device)
+        instruction_encoder = InstructionEncoder(self.config).to(self.device)
         # Init the depth encoderer"
         depth_encoder = VlnResnetDepthEncoder(
             dataset.observation_space,
@@ -180,9 +180,11 @@ class RecollectTrainer(BaseVLNCETrainer):
                     padding_mask_decoder = padding_mask_decoder.to(
                         device=self.device, non_blocking=True
                     )
+                    weights_batch = weights_batch.to(
+                        device=self.device, non_blocking=True
+                    )
 
-                    instruction = observations_batch['instruction']
-                    instruction_embedding = instruction_encoder(instruction)
+                    instruction_embedding = instruction_encoder(observations_batch)
                     rgb_embedding = rgb_encoder(observations_batch)
                     depth_embedding = depth_encoder(observations_batch)
                     # gradient accumulation
@@ -209,6 +211,8 @@ class RecollectTrainer(BaseVLNCETrainer):
                         padding_mask_decoder,
                         True,
                         corrected_actions_batch,
+                        prev_actions_batch,
+                        weights_batch,
                         step_grad=step_grad,
                         loss_accumulation_scalar=loss_accumulation_scalar,
                     )

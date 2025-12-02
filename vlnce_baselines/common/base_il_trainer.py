@@ -147,6 +147,8 @@ class BaseVLNCETrainer(BaseILTrainer):
         padding_mask_decoder,
         isCausal,
         corrected_actions,
+        prev_actions,
+        weights,
         step_grad: bool = True,
         loss_accumulation_scalar: int = 1,
     ):
@@ -163,14 +165,11 @@ class BaseVLNCETrainer(BaseILTrainer):
         )
 
         logits = distribution.logits
-        logger.info(f'Predicted actions: {logits.argmax(dim=-1)[0]}')
-        logger.info(f'Corrected actions: {corrected_actions[0]}')
-        logits = logits.view(N * T, -1)
-        corrected_actions = corrected_actions.reshape(N * T)
+        # corrected_actions = corrected_actions.reshape(N * T)
         loss = F.cross_entropy(
-            logits, corrected_actions, ignore_index=-1, reduction="mean"
+            logits.permute(0, 2, 1), corrected_actions, ignore_index=-1, reduction="none"
         )
-        # action_loss = ((weights * action_loss).sum(0) / weights.sum(0)).mean()
+        loss = ((weights * loss).sum(0) / weights.sum(0)).mean()
 
         # aux_mask = (weights > 0).view(-1)
         # aux_loss = AuxLosses.reduce(aux_mask)
