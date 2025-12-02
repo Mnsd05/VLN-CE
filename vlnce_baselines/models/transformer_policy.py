@@ -62,7 +62,7 @@ class TransformerNet(Net):
         model_config.TRANSFORMER.num_heads,
         model_config.TRANSFORMER.dropout_p,
         model_config.TRANSFORMER.num_blocks)
-        # self.action_embedding = 
+        self.action_embedding = nn.Embedding(4, 32) 
 
         self.train()
 
@@ -77,16 +77,15 @@ class TransformerNet(Net):
     def is_blind(self):
         return False
 
-    def forward(self, instruction_embedding, rgb_embedding, depth_embedding, padding_mask_encoder, padding_mask_decoder, isCausal):
+    def forward(self, instruction_embedding, rgb_embedding, depth_embedding, prev_actions, padding_mask_encoder, padding_mask_decoder, isCausal):
         depth_embedding = self.depth_down_project(depth_embedding)
         rgb_embedding = self.rgb_down_project(rgb_embedding)
         instruction_embedding = self.instruction_down_project(instruction_embedding)
-
+        
         visual_embedding = torch.cat(
-            [depth_embedding, rgb_embedding], dim=2
+            [rgb_embedding, depth_embedding, self.action_embedding(prev_actions)], dim=2
         )
         return self.transformer(instruction_embedding, visual_embedding, padding_mask_encoder, padding_mask_decoder, isCausal)
-
 
 
 class DotProductAttention(nn.Module):

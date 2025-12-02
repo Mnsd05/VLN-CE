@@ -80,7 +80,7 @@ def collate_fn(batch):
             )
 
         prev_actions_batch[bid] = _pad_helper(
-            prev_actions_batch[bid], max_traj_len
+            prev_actions_batch[bid], max_traj_len, fill_val=0
         )
         corrected_actions_batch[bid] = _pad_helper(
             corrected_actions_batch[bid], max_traj_len, fill_val=-1

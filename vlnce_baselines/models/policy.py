@@ -29,6 +29,7 @@ class ILPolicy(Policy, metaclass=abc.ABCMeta):
         instruction_embedding,
         rgb_embedding,
         depth_embedding,
+        prev_actions,
         padding_mask_encoder,
         padding_mask_decoder,
         isCausal,
@@ -39,6 +40,7 @@ class ILPolicy(Policy, metaclass=abc.ABCMeta):
             instruction_embedding,
             rgb_embedding,
             depth_embedding,
+            prev_actions,
             padding_mask_encoder,
             padding_mask_decoder,
             isCausal,
@@ -59,12 +61,13 @@ class ILPolicy(Policy, metaclass=abc.ABCMeta):
     #     raise NotImplementedError
 
     def build_distribution(
-        self, instruction_embedding, rgb_embedding, depth_embedding, padding_mask_encoder, padding_mask_decoder, isCausal
+        self, instruction_embedding, rgb_embedding, depth_embedding, prev_actions, padding_mask_encoder, padding_mask_decoder, isCausal
     ) -> CustomFixedCategorical:
         features = self.net(
             instruction_embedding,
             rgb_embedding,
             depth_embedding,
+            prev_actions,
             padding_mask_encoder,
             padding_mask_decoder,
             isCausal,

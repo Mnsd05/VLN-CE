@@ -257,7 +257,7 @@ _C.MODEL.DEPTH_ENCODER.trainable = False
 
 _C.MODEL.TRANSFORMER = CN()
 _C.MODEL.TRANSFORMER.d_encoder_in = 384
-_C.MODEL.TRANSFORMER.d_decoder_in = 768
+_C.MODEL.TRANSFORMER.d_decoder_in = 768 + 32
 _C.MODEL.TRANSFORMER.num_heads = 8
 _C.MODEL.TRANSFORMER.dropout_p = 0.1
 _C.MODEL.TRANSFORMER.num_blocks = 6
