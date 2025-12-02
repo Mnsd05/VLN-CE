@@ -57,7 +57,8 @@ class TransformerNet(Net):
         self.instruction_down_project = nn.Linear(model_config.INSTRUCTION_ENCODER.hidden_size, model_config.INSTRUCTION_ENCODER.output_size)
         self.rgb_down_project = nn.Linear(model_config.RGB_ENCODER.hidden_size, model_config.RGB_ENCODER.output_size)
         self.depth_down_project = nn.Linear(model_config.DEPTH_ENCODER.hidden_size, model_config.DEPTH_ENCODER.output_size)
-        self.transformer = CustomTransformer(model_config.TRANSFORMER.d_in,
+        self.transformer = CustomTransformer(model_config.TRANSFORMER.d_encoder_in,
+        model_config.TRANSFORMER.d_decoder_in,
         model_config.TRANSFORMER.num_heads,
         model_config.TRANSFORMER.dropout_p,
         model_config.TRANSFORMER.num_blocks)
@@ -66,8 +67,7 @@ class TransformerNet(Net):
 
     @property
     def output_size(self):
-        # d_in = d_out
-        return self.model_config.TRANSFORMER.d_in
+        return self.model_config.TRANSFORMER.d_decoder_in
 
     @property
     def num_recurrent_layers(self):
@@ -120,7 +120,7 @@ class DotProductAttention(nn.Module):
             mask = padding_mask.unsqueeze(1) * causal_mask
         else:
             mask = padding_mask.unsqueeze(1)
-        QKT = QKT.masked_fill(mask == 0, -float('1e9'))
+        QKT = QKT.masked_fill(mask == 0, -float('1e4'))
         # Shape (B, H, T1, T2)
         attn = self.softmax(QKT)
         attn = self.dropout(attn)
@@ -131,7 +131,7 @@ class MultiHeadSelfAttention(nn.Module):
     def __init__(
         self,
         d_in: int,
-        num_heads: int,
+        num_heads: int, 
         dropout_p: float = 0.0,
     ) -> None:
         """The residual connection of Vaswani et al is not used here. The
@@ -139,7 +139,7 @@ class MultiHeadSelfAttention(nn.Module):
         Args:
             d_in (int): dimension of the input vector
             num_heads (int): number of attention heads
-        """
+        """ 
         super().__init__()
         self.num_heads = num_heads
         self.q_linear = nn.Linear(d_in, d_in, bias=False)
@@ -180,7 +180,8 @@ class MultiHeadSelfAttention(nn.Module):
 class MultiHeadCrossAttention(nn.Module):
     def __init__(
         self,
-        d_in: int,
+        d_q_in: int,
+        d_kv_in: int,
         num_heads: int,
         dropout_p: float = 0.0
     ) -> None:
@@ -191,20 +192,19 @@ class MultiHeadCrossAttention(nn.Module):
         """
         super().__init__()
         self.num_heads = num_heads
-        self.q_linear = nn.Linear(d_in, d_in, bias=False)
-        self.k_linear = nn.Linear(d_in, d_in, bias=False)
-        self.v_linear = nn.Linear(d_in, d_in, bias=False)
+        self.q_linear = nn.Linear(d_q_in, d_q_in, bias=False)
+        self.k_linear = nn.Linear(d_kv_in, d_q_in, bias=False)
+        self.v_linear = nn.Linear(d_kv_in, d_q_in, bias=False)
 
-        self.attn = DotProductAttention(d_in // num_heads, dropout_p)
-
+        self.attn = DotProductAttention(d_q_in // num_heads, dropout_p)
     def forward(
         self, x: Tensor, encoder_out: Tensor, padding_mask: Tensor, 
         isCausal: bool = False
     ) -> Tensor:
         """Performs multihead scaled dot product attention for some Q, K, V.
         Args:
-            x: [Batch, T1, d_in]
-            encoder_out: [Batch, T2, d_in]
+            x: [Batch, T1, d_q_in]
+            encoder_out: [Batch, T2, d_kv_in]
             padding_mask: [Batch, T1, T2]
             isCausal: bool, whether to apply causal mask
         """
@@ -241,13 +241,13 @@ class MLP(nn.Module):
         return x
 
 class EncoderBlock(nn.Module):
-    def __init__(self, d_in, num_heads, dropout_p) -> None:
+    def __init__(self, d_encoder_in, num_heads, dropout_p) -> None:
         super().__init__()
-        assert d_in % num_heads == 0, "d_in must be divisible by num_heads"
-        self.attn = MultiHeadSelfAttention(d_in, num_heads, dropout_p)
-        self.mlp = MLP(d_in, dropout_p)
-        self.layer_norm1 = nn.LayerNorm(d_in)
-        self.layer_norm2 = nn.LayerNorm(d_in)
+        assert d_encoder_in % num_heads == 0, "d_encoder_in must be divisible by num_heads"
+        self.attn = MultiHeadSelfAttention(d_encoder_in, num_heads, dropout_p)
+        self.mlp = MLP(d_encoder_in, dropout_p)
+        self.layer_norm1 = nn.LayerNorm(d_encoder_in)
+        self.layer_norm2 = nn.LayerNorm(d_encoder_in)
 
     def forward(self, x: Tensor, padding_mask: Tensor) -> Tensor:
         x = x + self.attn(self.layer_norm1(x), padding_mask, isCausal=False)
@@ -255,13 +255,13 @@ class EncoderBlock(nn.Module):
         return x
 
 class Encoder(nn.Module):
-    def __init__(self, d_in, num_heads, dropout_p, num_blocks) -> None:
+    def __init__(self, d_encoder_in, num_heads, dropout_p, num_blocks) -> None:
         super().__init__()
-        self.blocks = nn.ModuleList([EncoderBlock(d_in, num_heads, dropout_p) for _ in range(num_blocks)])
-        self.layer_norm = nn.LayerNorm(d_in)
+        self.blocks = nn.ModuleList([EncoderBlock(d_encoder_in, num_heads, dropout_p) for _ in range(num_blocks)])
+        self.layer_norm = nn.LayerNorm(d_encoder_in)
 
         max_len = 200
-        d_model = d_in
+        d_model = d_encoder_in
         pe = torch.zeros(max_len, d_model)
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, d_model, 2, dtype=torch.float) * (-math.log(10000.0) / d_model))
@@ -278,15 +278,15 @@ class Encoder(nn.Module):
         return x
 
 class DecoderBlock(nn.Module):
-    def __init__(self, d_in, num_heads, dropout_p) -> None:
+    def __init__(self, d_decoder_in, d_encoder_in, num_heads, dropout_p) -> None:
         super().__init__()
-        assert d_in % num_heads == 0, "d_in must be divisible by num_heads"
-        self.attn1 = MultiHeadSelfAttention(d_in, num_heads, dropout_p)
-        self.attn2 = MultiHeadCrossAttention(d_in, num_heads, dropout_p)
-        self.mlp = MLP(d_in, dropout_p)
-        self.layer_norm1 = nn.LayerNorm(d_in)
-        self.layer_norm2 = nn.LayerNorm(d_in)
-        self.layer_norm3 = nn.LayerNorm(d_in)
+        assert d_decoder_in % num_heads == 0, "d_decoder_in must be divisible by num_heads"
+        self.attn1 = MultiHeadSelfAttention(d_decoder_in, num_heads, dropout_p)
+        self.attn2 = MultiHeadCrossAttention(d_decoder_in, d_encoder_in, num_heads, dropout_p)
+        self.mlp = MLP(d_decoder_in, dropout_p)
+        self.layer_norm1 = nn.LayerNorm(d_decoder_in)
+        self.layer_norm2 = nn.LayerNorm(d_decoder_in)
+        self.layer_norm3 = nn.LayerNorm(d_decoder_in)
 
     def forward(self, x: Tensor, encoder_out: Tensor, padding_mask_encoder: Tensor, padding_mask_decoder: Tensor, isCausal: bool = False) -> Tensor:
         x = x + self.attn1(self.layer_norm1(x), padding_mask_decoder, isCausal = True)
@@ -300,12 +300,12 @@ class DecoderBlock(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, d_in, num_heads, dropout_p, num_blocks) -> None:
+    def __init__(self, d_decoder_in, d_encoder_in, num_heads, dropout_p, num_blocks) -> None:
         super().__init__()
-        self.blocks = nn.ModuleList([DecoderBlock(d_in, num_heads, dropout_p) for _ in range(num_blocks)])
-        self.layer_norm = nn.LayerNorm(d_in)
+        self.blocks = nn.ModuleList([DecoderBlock(d_decoder_in, d_encoder_in, num_heads, dropout_p) for _ in range(num_blocks)])
+        self.layer_norm = nn.LayerNorm(d_decoder_in)
         max_len = 500
-        d_model = d_in
+        d_model = d_decoder_in
         pe = torch.zeros(max_len, d_model)
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, d_model, 2, dtype=torch.float) * (-math.log(10000.0) / d_model))
@@ -323,10 +323,10 @@ class Decoder(nn.Module):
         return x
 
 class CustomTransformer(nn.Module):
-    def __init__(self, d_in, num_heads, dropout_p, num_blocks) -> None:
+    def __init__(self, d_encoder_in, d_decoder_in, num_heads, dropout_p, num_blocks) -> None:
         super().__init__()
-        self.encoder = Encoder(d_in, num_heads, dropout_p, num_blocks)
-        self.decoder = Decoder(d_in, num_heads, dropout_p, num_blocks)
+        self.encoder = Encoder(d_encoder_in, num_heads, dropout_p, num_blocks)
+        self.decoder = Decoder(d_decoder_in, d_encoder_in, num_heads, dropout_p, num_blocks)
     
     def forward(self, instruction: Tensor, visual: Tensor, padding_mask_encoder: Tensor, padding_mask_decoder: Tensor, isCausal: bool = False) -> Tensor:
         instruction = self.encoder(instruction, padding_mask_encoder)

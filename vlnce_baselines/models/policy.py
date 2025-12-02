@@ -3,8 +3,9 @@ from typing import Any
 
 from habitat_baselines.rl.ppo.policy import Policy
 from habitat_baselines.utils.common import CategoricalNet
-
+from habitat import logger
 from vlnce_baselines.models.utils import CustomFixedCategorical
+import torch
 
 
 class ILPolicy(Policy, metaclass=abc.ABCMeta):
@@ -31,6 +32,7 @@ class ILPolicy(Policy, metaclass=abc.ABCMeta):
         padding_mask_encoder,
         padding_mask_decoder,
         isCausal,
+        lengths,
         deterministic=False,
     ):
         features = self.net(
@@ -41,13 +43,16 @@ class ILPolicy(Policy, metaclass=abc.ABCMeta):
             padding_mask_decoder,
             isCausal,
         )
+        pos = [l - 1 for l in lengths]
+        features = features[torch.arange(features.size(0)), pos]
+        logger.info(f"Features shape: {features.shape}")
         distribution = self.action_distribution(features)
-
         if deterministic:
             action = distribution.mode()
         else:
             action = distribution.sample()
-
+        logger.info(f"Actions shape: {action.shape}")
+        logger.info(f"Actions: {action}")
         return action
 
     # def get_value(self, *args: Any, **kwargs: Any):

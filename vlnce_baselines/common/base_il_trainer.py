@@ -163,6 +163,8 @@ class BaseVLNCETrainer(BaseILTrainer):
         )
 
         logits = distribution.logits
+        logger.info(f'Predicted actions: {logits.argmax(dim=-1)[0]}')
+        logger.info(f'Corrected actions: {corrected_actions[0]}')
         logits = logits.view(N * T, -1)
         corrected_actions = corrected_actions.reshape(N * T)
         loss = F.cross_entropy(
@@ -321,19 +323,10 @@ class BaseVLNCETrainer(BaseILTrainer):
         padding_mask_encoder = padding_mask_encoder.to(self.device)
 
         instruction_embedding = instruction_encoder(batch["instruction"])
-        rgb_history = torch.empty(
-            envs.num_envs,
-            0,
-            config.MODEL.RGB_ENCODER.hidden_size,
-            device=self.device,
-        )
-
-        depth_history = torch.empty(
-            envs.num_envs,
-            0,
-            config.MODEL.DEPTH_ENCODER.hidden_size,
-            device=self.device,
-        )
+        
+        # Use lists to handle variable length history
+        rgb_history = [torch.zeros(0, config.MODEL.RGB_ENCODER.hidden_size, device=self.device) for _ in range(envs.num_envs)]
+        depth_history = [torch.zeros(0, config.MODEL.DEPTH_ENCODER.hidden_size, device=self.device) for _ in range(envs.num_envs)]
 
         stats_episodes = {}
 
@@ -355,22 +348,40 @@ class BaseVLNCETrainer(BaseILTrainer):
 
         while envs.num_envs > 0 and len(stats_episodes) < num_eps:
             current_episodes = envs.current_episodes()
+            
             # Update history here
             rgb_embedding = rgb_encoder(batch)
             depth_embedding = depth_encoder(batch)
-            rgb_history = torch.cat([rgb_history, rgb_embedding.unsqueeze(1)], dim=1)
-            depth_history = torch.cat([depth_history, depth_embedding.unsqueeze(1)], dim=1)
-            valid = (rgb_history.sum(dim=-1) != 0).float()
+            
+            for i in range(envs.num_envs):
+                rgb_history[i] = torch.cat([rgb_history[i], rgb_embedding[i:i+1]], dim=0)
+                depth_history[i] = torch.cat([depth_history[i], depth_embedding[i:i+1]], dim=0)
+            
+            # Pad and stack history for model input
+            lengths = [h.size(0) for h in rgb_history]
+            max_len = max(lengths)
+            
+            rgb_tensor = torch.zeros(envs.num_envs, max_len, config.MODEL.RGB_ENCODER.hidden_size, device=self.device)
+            depth_tensor = torch.zeros(envs.num_envs, max_len, config.MODEL.DEPTH_ENCODER.hidden_size, device=self.device)
+            valid = torch.zeros(envs.num_envs, max_len, device=self.device)
+            
+            for i in range(envs.num_envs):
+                l = lengths[i]
+                rgb_tensor[i, :l] = rgb_history[i]
+                depth_tensor[i, :l] = depth_history[i]
+                valid[i, :l] = 1.0
+            
             padding_mask_decoder = valid.unsqueeze(2) * valid.unsqueeze(1)
-            # Need to find padding mask for encoder and decoder 
+            
             with torch.no_grad():
                 actions = self.policy.act(
                     instruction_embedding,
-                    rgb_history,
-                    depth_history,
+                    rgb_tensor,
+                    depth_tensor,
                     padding_mask_encoder,
                     padding_mask_decoder,
                     isCausal,
+                    lengths,
                     deterministic=not config.EVAL.SAMPLE,
                 )
 
@@ -399,10 +410,9 @@ class BaseVLNCETrainer(BaseILTrainer):
                 len_non_zero = (batch["instruction"][i] != 0).sum()
                 padding_mask_encoder[i, :len_non_zero, :len_non_zero] = 1
 
-                rgb_history[i] = 0
-                depth_history[i] = 0
-                rgb_history = self._pad_history(rgb_history)
-                depth_history = self._pad_history(depth_history)
+                # Reset history for this env
+                rgb_history[i] = torch.zeros(0, config.MODEL.RGB_ENCODER.hidden_size, device=self.device)
+                depth_history[i] = torch.zeros(0, config.MODEL.DEPTH_ENCODER.hidden_size, device=self.device)
 
                 if config.use_pbar:
                     pbar.update()
@@ -442,24 +452,21 @@ class BaseVLNCETrainer(BaseILTrainer):
                 if next_episodes[i].episode_id in stats_episodes:
                     envs_to_pause.append(i)
 
-            (
-                envs,
-                batch,
-                rgb_history,
-                depth_history,
-                instruction_embedding,
-                padding_mask_encoder,
-                rgb_frames,
-            ) = self._pause_envs(
-                envs_to_pause,
-                envs,
-                batch,
-                rgb_history,
-                depth_history,
-                instruction_embedding,
-                padding_mask_encoder,
-                rgb_frames,
-            )
+            # Pause envs logic inlined to handle mixed list/tensor types
+            if len(envs_to_pause) > 0:
+                state_index = list(range(envs.num_envs))
+                for idx in reversed(envs_to_pause):
+                    state_index.pop(idx)
+                    envs.pause_at(idx)
+                    rgb_history.pop(idx)
+                    depth_history.pop(idx)
+                    if rgb_frames is not None:
+                        rgb_frames.pop(idx)
+                
+                instruction_embedding = instruction_embedding[state_index]
+                padding_mask_encoder = padding_mask_encoder[state_index]
+                for k, v in batch.items():
+                    batch[k] = v[state_index]
 
         envs.close()
         if config.use_pbar:
