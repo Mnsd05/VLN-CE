@@ -45,14 +45,11 @@ class ILPolicy(Policy, metaclass=abc.ABCMeta):
         )
         pos = [l - 1 for l in lengths]
         features = features[torch.arange(features.size(0)), pos]
-        logger.info(f"Features shape: {features.shape}")
         distribution = self.action_distribution(features)
         if deterministic:
             action = distribution.mode()
         else:
             action = distribution.sample()
-        logger.info(f"Actions shape: {action.shape}")
-        logger.info(f"Actions: {action}")
         return action
 
     # def get_value(self, *args: Any, **kwargs: Any):

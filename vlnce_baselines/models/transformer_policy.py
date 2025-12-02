@@ -62,6 +62,7 @@ class TransformerNet(Net):
         model_config.TRANSFORMER.num_heads,
         model_config.TRANSFORMER.dropout_p,
         model_config.TRANSFORMER.num_blocks)
+        # self.action_embedding = 
 
         self.train()
 

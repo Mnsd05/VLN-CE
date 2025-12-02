@@ -297,7 +297,7 @@ class BaseVLNCETrainer(BaseILTrainer):
         )
         self.policy.eval()
 
-        instruction_encoder = InstructionEncoder().to(self.device)
+        instruction_encoder = InstructionEncoder(self.config).to(self.device)
         # Init the depth encoderer"
         depth_encoder = VlnResnetDepthEncoder(
             observation_space,
@@ -321,7 +321,7 @@ class BaseVLNCETrainer(BaseILTrainer):
         padding_mask_encoder = valid.unsqueeze(2) * valid.unsqueeze(1)
         padding_mask_encoder = padding_mask_encoder.to(self.device)
 
-        instruction_embedding = instruction_encoder(batch["instruction"])
+        instruction_embedding = instruction_encoder(batch)
         
         # Use lists to handle variable length history
         rgb_history = [torch.zeros(0, config.MODEL.RGB_ENCODER.hidden_size, device=self.device) for _ in range(envs.num_envs)]
@@ -404,7 +404,7 @@ class BaseVLNCETrainer(BaseILTrainer):
                 observations[i] = envs.reset_at(i)[0]
 
                 # Handle new episode
-                instruction_embedding[i] = instruction_encoder(batch["instruction"][i].unsqueeze(0))
+                instruction_embedding = instruction_encoder(batch)
                 padding_mask_encoder[i] = torch.zeros((200, 200)).to(self.device)
                 len_non_zero = (batch["instruction"][i] != 0).sum()
                 padding_mask_encoder[i, :len_non_zero, :len_non_zero] = 1
