@@ -14,6 +14,7 @@ from transformers import AutoModel
 import torchvision.transforms as Transformation
 from vlnce_baselines.common.utils import single_frame_box_shape
 import copy
+from habitat import logger
 
 class VlnResnetDepthEncoder(nn.Module):
     def __init__(
@@ -72,10 +73,15 @@ class VlnResnetDepthEncoder(nn.Module):
             x = observations["depth_features"]
         else:
             copy_observations =  observations.copy()
-            B, T, H, W, C = copy_observations['depth'].shape
-            copy_observations['depth'] = copy_observations['depth'].reshape(B * T, H, W, C)
-            x = self.visual_encoder(copy_observations)
-            x = x.reshape(B, T, -1)
+            if copy_observations['depth'].ndim == 5:
+                B, T, H, W, C = copy_observations['depth'].shape
+                copy_observations['depth'] = copy_observations['depth'].reshape(B * T, H, W, C)
+                x = self.visual_encoder(copy_observations)
+                x = x.reshape(B, T, -1)
+            else:
+                B, H, W, C = copy_observations['depth'].shape
+                x = self.visual_encoder(copy_observations)
+                x = x.reshape(B, -1)
         return x
 
 class VlnRGBEncoder(nn.Module):
@@ -101,13 +107,21 @@ class VlnRGBEncoder(nn.Module):
             x = observations["rgb_features"]
         else:
             x = observations['rgb'].float() / 255.0
-            x = x.permute(0,1,4,2,3)
-            B, T, C, H, W = x.shape
-            x = x.reshape(B * T, C, H, W)
-            transform = Transformation.Compose([
-                Transformation.Normalize(mean=[0.48145466, 0.4578275, 0.40821073],
-                            std=[0.26862954, 0.26130258, 0.27577711])
-            ])
-            x = self.vision_model(transform(x))
-            x = x.reshape(B, T, -1)
+            if x.ndim == 5:
+                x = x.permute(0,1,4,2,3)
+                B, T, C, H, W = x.shape
+                x = x.reshape(B * T, C, H, W)
+                transform = Transformation.Compose([
+                    Transformation.Normalize(mean=[0.48145466, 0.4578275, 0.40821073],
+                                std=[0.26862954, 0.26130258, 0.27577711])
+                ])
+                x = self.vision_model(transform(x))
+                x = x.reshape(B, T, -1)
+            else:
+                x = x.permute(0,3,1,2) 
+                transform = Transformation.Compose([
+                    Transformation.Normalize(mean=[0.48145466, 0.4578275, 0.40821073],
+                                std=[0.26862954, 0.26130258, 0.27577711])
+                ])
+                x = self.vision_model(transform(x))
         return x

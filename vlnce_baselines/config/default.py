@@ -233,20 +233,20 @@ _C.MODEL.INSTRUCTION_ENCODER.fine_tune_embeddings = False
 _C.MODEL.INSTRUCTION_ENCODER.embedding_size = 50
 _C.MODEL.INSTRUCTION_ENCODER.hidden_size = 768
 _C.MODEL.INSTRUCTION_ENCODER.rnn_type = "LSTM"
-_C.MODEL.INSTRUCTION_ENCODER.final_state_only = True
+_C.MODEL.INSTRUCTION_ENCODER.final_state_only = False
 _C.MODEL.INSTRUCTION_ENCODER.bidirectional = False
-_C.MODEL.INSTRUCTION_ENCODER.output_size = 256
+_C.MODEL.INSTRUCTION_ENCODER.output_size = 384
 
 _C.MODEL.RGB_ENCODER = CN()
 _C.MODEL.RGB_ENCODER.cnn_type = "TorchVisionResNet50"
 _C.MODEL.RGB_ENCODER.hidden_size = 768
-_C.MODEL.RGB_ENCODER.output_size = 128
+_C.MODEL.RGB_ENCODER.output_size = 384
 _C.MODEL.RGB_ENCODER.trainable = False
 
 _C.MODEL.DEPTH_ENCODER = CN()
 _C.MODEL.DEPTH_ENCODER.cnn_type = "VlnResnetDepthEncoder"
 _C.MODEL.DEPTH_ENCODER.hidden_size = 2048
-_C.MODEL.DEPTH_ENCODER.output_size = 128
+_C.MODEL.DEPTH_ENCODER.output_size = 384
 # type of resnet to use
 _C.MODEL.DEPTH_ENCODER.backbone = "resnet50"
 # path to DDPPO resnet weights
@@ -256,7 +256,8 @@ _C.MODEL.DEPTH_ENCODER.ddppo_checkpoint = (
 _C.MODEL.DEPTH_ENCODER.trainable = False
 
 _C.MODEL.TRANSFORMER = CN()
-_C.MODEL.TRANSFORMER.d_in = 256
+_C.MODEL.TRANSFORMER.d_encoder_in = 384
+_C.MODEL.TRANSFORMER.d_decoder_in = 768 + 32
 _C.MODEL.TRANSFORMER.num_heads = 8
 _C.MODEL.TRANSFORMER.dropout_p = 0.1
 _C.MODEL.TRANSFORMER.num_blocks = 6

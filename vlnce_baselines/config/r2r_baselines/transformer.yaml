@@ -2,20 +2,23 @@ BASE_TASK_CONFIG_PATH: habitat_extensions/config/vlnce_task.yaml
 TRAINER_NAME: recollect_trainer
 SIMULATOR_GPU_IDS: [0]
 TORCH_GPU_ID: 0
-NUM_ENVIRONMENTS: 1
+NUM_ENVIRONMENTS: 10
 TENSORBOARD_DIR: data/tensorboard_dirs/transformer
 CHECKPOINT_FOLDER: data/checkpoints/transformer
-EVAL_CKPT_PATH_DIR: data/checkpoints/seq2seq
-RESULTS_DIR: data/checkpoints/seq2seq/evals
+EVAL_CKPT_PATH_DIR: data/checkpoints/transformer/ckpt.9.pth 
+RESULTS_DIR: data/checkpoints/transformer/evals
 
 EVAL:
   USE_CKPT_CONFIG: False
   SPLIT: val_unseen
-  EPISODE_COUNT: -1
+  EPISODE_COUNT: 50
 
 IL:
-  epochs: 15
-  batch_size: 5
+  epochs: 5
+  batch_size: 15
+  load_from_ckpt: True
+  ckpt_to_load: "data/checkpoints/transformer/ckpt.9.pth"  # Replace with your specific checkpoint path
+  is_requeue: True  # Set to True to load optimizer state, epoch, and step_id to continue training
 
   RECOLLECT_TRAINER:
     gt_file:

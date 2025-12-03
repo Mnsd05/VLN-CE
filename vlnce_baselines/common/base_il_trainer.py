@@ -28,6 +28,13 @@ from habitat_extensions.utils import generate_video, observations_to_image
 from vlnce_baselines.common.aux_losses import AuxLosses
 from vlnce_baselines.common.env_utils import construct_envs_auto_reset_false
 from vlnce_baselines.common.utils import extract_instruction_tokens
+from vlnce_baselines.models.encoders.visual_encoders import (
+    VlnResnetDepthEncoder,
+    VlnRGBEncoder,
+)
+from vlnce_baselines.models.encoders.instruction_encoder import (
+    InstructionEncoder,
+)
 
 with warnings.catch_warnings():
     warnings.filterwarnings("ignore", category=FutureWarning)
@@ -133,29 +140,37 @@ class BaseVLNCETrainer(BaseILTrainer):
 
     def _update_agent(
         self,
-        observations,
+        instruction_embedding,
+        rgb_embedding,
+        depth_embedding,
         padding_mask_encoder,
         padding_mask_decoder,
         isCausal,
         corrected_actions,
+        prev_actions,
+        weights,
         step_grad: bool = True,
         loss_accumulation_scalar: int = 1,
     ):
-        T, N = corrected_actions.size()
-
+        N, T = corrected_actions.size()
         # AuxLosses.clear()
 
         distribution = self.policy.build_distribution(
-            observations, padding_mask_encoder, padding_mask_decoder, isCausal
+            instruction_embedding,
+            rgb_embedding,
+            depth_embedding,
+            prev_actions,
+            padding_mask_encoder,
+            padding_mask_decoder,
+            isCausal,
         )
 
         logits = distribution.logits
-        logits = logits.view(N, T, -1)
-
+        # corrected_actions = corrected_actions.reshape(N * T)
         loss = F.cross_entropy(
-            logits, corrected_actions, ignore_index=-1, reduction="none"
+            logits.permute(0, 2, 1), corrected_actions, ignore_index=-1, reduction="none"
         )
-        # action_loss = ((weights * action_loss).sum(0) / weights.sum(0)).mean()
+        loss = ((weights * loss).sum(0) / weights.sum(0)).mean()
 
         # aux_mask = (weights > 0).view(-1)
         # aux_loss = AuxLosses.reduce(aux_mask)
@@ -177,10 +192,11 @@ class BaseVLNCETrainer(BaseILTrainer):
     def _pause_envs(
         envs_to_pause,
         envs,
-        recurrent_hidden_states,
-        not_done_masks,
-        prev_actions,
         batch,
+        rgb_history,
+        depth_history,
+        instruction_embedding,
+        padding_mask_encoder,
         rgb_frames=None,
     ):
         # pausing envs with no new episode
@@ -191,9 +207,11 @@ class BaseVLNCETrainer(BaseILTrainer):
                 envs.pause_at(idx)
 
             # indexing along the batch dimensions
-            recurrent_hidden_states = recurrent_hidden_states[state_index]
-            not_done_masks = not_done_masks[state_index]
-            prev_actions = prev_actions[state_index]
+            rgb_history = rgb_history[state_index]
+            depth_history = depth_history[state_index]
+            instruction_embedding = instruction_embedding[state_index]
+            padding_mask_encoder = padding_mask_encoder[state_index]
+            padding_mask_decoder = padding_mask_decoder[state_index]
 
             for k, v in batch.items():
                 batch[k] = v[state_index]
@@ -203,18 +221,27 @@ class BaseVLNCETrainer(BaseILTrainer):
 
         return (
             envs,
-            recurrent_hidden_states,
-            not_done_masks,
-            prev_actions,
             batch,
+            rgb_history,
+            depth_history,
+            instruction_embedding,
+            padding_mask_encoder,
             rgb_frames,
         )
+
+    # Pad history to the same length
+    def _pad_history(self, history):
+        non_zero_mask = history.sum(dim=-1) != 0
+        seq_length = non_zero_mask.sum(dim=-1)
+        max_seq_length = seq_length.max()
+        return history[:, :max_seq_length]        
 
     def _eval_checkpoint(
         self,
         checkpoint_path: str,
         writer: TensorboardWriter,
         checkpoint_index: int = 0,
+        isCausal: bool = True,
     ) -> None:
         """Evaluates a single checkpoint.
 
@@ -242,7 +269,7 @@ class BaseVLNCETrainer(BaseILTrainer):
             -1
         )
         config.IL.ckpt_to_load = checkpoint_path
-        config.use_pbar = not is_slurm_batch_job()
+        config.use_pbar = True
 
         if len(config.VIDEO_OPTION) > 0:
             config.TASK_CONFIG.TASK.MEASUREMENTS.append("TOP_DOWN_MAP_VLNCE")
@@ -271,6 +298,17 @@ class BaseVLNCETrainer(BaseILTrainer):
         )
         self.policy.eval()
 
+        instruction_encoder = InstructionEncoder(self.config).to(self.device)
+        depth_encoder = VlnResnetDepthEncoder(
+            observation_space,
+            output_size=self.config.MODEL.DEPTH_ENCODER.output_size,
+            checkpoint=self.config.MODEL.DEPTH_ENCODER.ddppo_checkpoint,
+            backbone=self.config.MODEL.DEPTH_ENCODER.backbone,
+            trainable=self.config.MODEL.DEPTH_ENCODER.trainable,
+            spatial_output=False,
+        ).to(self.device)
+        rgb_encoder = VlnRGBEncoder().to(self.device)
+        
         observations = envs.reset()
         observations = extract_instruction_tokens(
             observations, self.config.TASK_CONFIG.TASK.INSTRUCTION_SENSOR_UUID
@@ -278,18 +316,16 @@ class BaseVLNCETrainer(BaseILTrainer):
         batch = batch_obs(observations, self.device)
         batch = apply_obs_transforms_batch(batch, self.obs_transforms)
 
-        rnn_states = torch.zeros(
-            envs.num_envs,
-            self.policy.net.num_recurrent_layers,
-            config.MODEL.STATE_ENCODER.hidden_size,
-            device=self.device,
-        )
-        prev_actions = torch.zeros(
-            envs.num_envs, 1, device=self.device, dtype=torch.long
-        )
-        not_done_masks = torch.zeros(
-            envs.num_envs, 1, dtype=torch.uint8, device=self.device
-        )
+        valid = (batch["instruction"] != 0).float()
+        padding_mask_encoder = valid.unsqueeze(2) * valid.unsqueeze(1)
+        padding_mask_encoder = padding_mask_encoder.to(self.device)
+
+        instruction_embedding = instruction_encoder(batch)
+        
+        rgb_history = [torch.zeros(0, config.MODEL.RGB_ENCODER.hidden_size, device=self.device) for _ in range(envs.num_envs)]
+        depth_history = [torch.zeros(0, config.MODEL.DEPTH_ENCODER.hidden_size, device=self.device) for _ in range(envs.num_envs)]
+        action_history = [torch.zeros(0, dtype=torch.long, device=self.device) for _ in range(envs.num_envs)]
+        prev_actions = torch.zeros(envs.num_envs, 1, dtype=torch.long, device=self.device)
 
         stats_episodes = {}
 
@@ -308,28 +344,49 @@ class BaseVLNCETrainer(BaseILTrainer):
             " [Time elapsed (s): {time}]"
         )
         start_time = time.time()
-
         while envs.num_envs > 0 and len(stats_episodes) < num_eps:
             current_episodes = envs.current_episodes()
-
+            
+            # Shape (B, E)
+            rgb_embedding = rgb_encoder(batch)
+            depth_embedding = depth_encoder(batch)
+            for i in range(envs.num_envs):
+                rgb_history[i] = torch.cat([rgb_history[i], rgb_embedding[i:i+1]], dim=0)
+                depth_history[i] = torch.cat([depth_history[i], depth_embedding[i:i+1]], dim=0)
+                action_history[i] = torch.cat([action_history[i], prev_actions[i]])
+            
+            lengths = [h.size(0) for h in rgb_history]
+            max_len = max(lengths)
+            
+            rgb_tensor = torch.zeros(envs.num_envs, max_len, config.MODEL.RGB_ENCODER.hidden_size, device=self.device)
+            depth_tensor = torch.zeros(envs.num_envs, max_len, config.MODEL.DEPTH_ENCODER.hidden_size, device=self.device)
+            actions_tensor = torch.zeros(envs.num_envs, max_len, device=self.device, dtype=torch.long)
+            valid = torch.zeros(envs.num_envs, max_len, device=self.device)
+            for i in range(envs.num_envs):
+                l = lengths[i]
+                rgb_tensor[i, :l] = rgb_history[i]
+                depth_tensor[i, :l] = depth_history[i]
+                actions_tensor[i, :l] = action_history[i]
+                valid[i, :l] = 1.0
+            
+            padding_mask_decoder = valid.unsqueeze(2) * valid.unsqueeze(1)
+            
             with torch.no_grad():
-                actions, rnn_states = self.policy.act(
-                    batch,
-                    rnn_states,
-                    prev_actions,
-                    not_done_masks,
+                actions = self.policy.act(
+                    instruction_embedding,
+                    rgb_tensor,
+                    depth_tensor,
+                    actions_tensor,
+                    padding_mask_encoder,
+                    padding_mask_decoder,
+                    isCausal,
+                    lengths,
                     deterministic=not config.EVAL.SAMPLE,
                 )
-                prev_actions.copy_(actions)
+            prev_actions = actions
 
             outputs = envs.step([a[0].item() for a in actions])
             observations, _, dones, infos = [list(x) for x in zip(*outputs)]
-
-            not_done_masks = torch.tensor(
-                [[0] if done else [1] for done in dones],
-                dtype=torch.uint8,
-                device=self.device,
-            )
 
             # reset envs and observations if necessary
             for i in range(envs.num_envs):
@@ -346,7 +403,16 @@ class BaseVLNCETrainer(BaseILTrainer):
                 ep_id = current_episodes[i].episode_id
                 stats_episodes[ep_id] = infos[i]
                 observations[i] = envs.reset_at(i)[0]
-                prev_actions[i] = torch.zeros(1, dtype=torch.long)
+
+                instruction_embedding = instruction_encoder(batch)
+                padding_mask_encoder[i] = torch.zeros((200, 200)).to(self.device)
+                len_non_zero = (batch["instruction"][i] != 0).sum()
+                padding_mask_encoder[i, :len_non_zero, :len_non_zero] = 1
+
+                rgb_history[i] = torch.zeros(0, config.MODEL.RGB_ENCODER.hidden_size, device=self.device)
+                depth_history[i] = torch.zeros(0, config.MODEL.DEPTH_ENCODER.hidden_size, device=self.device)
+                action_history[i] = torch.zeros(0, dtype=torch.long, device=self.device)
+                prev_actions[i][0] = 0
 
                 if config.use_pbar:
                     pbar.update()
@@ -386,22 +452,23 @@ class BaseVLNCETrainer(BaseILTrainer):
                 if next_episodes[i].episode_id in stats_episodes:
                     envs_to_pause.append(i)
 
-            (
-                envs,
-                rnn_states,
-                not_done_masks,
-                prev_actions,
-                batch,
-                rgb_frames,
-            ) = self._pause_envs(
-                envs_to_pause,
-                envs,
-                rnn_states,
-                not_done_masks,
-                prev_actions,
-                batch,
-                rgb_frames,
-            )
+            # Pause envs 
+            if len(envs_to_pause) > 0:
+                state_index = list(range(envs.num_envs))
+                for idx in reversed(envs_to_pause):
+                    state_index.pop(idx)
+                    envs.pause_at(idx)
+                    rgb_history.pop(idx)
+                    depth_history.pop(idx)
+                    action_history.pop(idx)
+                    if rgb_frames is not None:
+                        rgb_frames.pop(idx)
+                
+                prev_actions = prev_actions[state_index]
+                instruction_embedding = instruction_embedding[state_index]
+                padding_mask_encoder = padding_mask_encoder[state_index]
+                for k, v in batch.items():
+                    batch[k] = v[state_index]
 
         envs.close()
         if config.use_pbar:

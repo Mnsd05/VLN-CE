@@ -17,7 +17,7 @@ from habitat_baselines.common.obs_transformers import (
 from habitat_extensions.task import ALL_ROLES_MASK
 from vlnce_baselines.common.env_utils import construct_envs
 from vlnce_baselines.common.utils import extract_instruction_tokens
-
+from habitat import logger
 
 class TeacherRecollectionDataset(torch.utils.data.IterableDataset):
     def __init__(self, config: Config):
@@ -167,7 +167,6 @@ class TeacherRecollectionDataset(torch.utils.data.IterableDataset):
                 self.trajectories[ep.episode_id][self.env_step[i]][1]
                 for i, ep in enumerate(current_episodes)
             ]
-
             outputs = self.envs.step(actions)
             observations, _, dones, _ = [list(x) for x in zip(*outputs)]
             observations = extract_instruction_tokens(
@@ -176,7 +175,6 @@ class TeacherRecollectionDataset(torch.utils.data.IterableDataset):
             )
 
             current_episodes = self.envs.current_episodes()
-
             for i in range(self.envs.num_envs):
                 self.env_step[i] += 1
                 if dones[i]:

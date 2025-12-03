@@ -7,7 +7,7 @@ import torch
 def extract_instruction_tokens(
     observations: List[Dict],
     instruction_sensor_uuid: str,
-    text_uuid: str = "text",
+    text_uuid: str = "tokens",
 ) -> Dict[str, Any]:
     """Extracts instruction tokens from an instruction sensor if the tokens
     exist and are in a dict structure.
@@ -17,7 +17,6 @@ def extract_instruction_tokens(
         or instruction_sensor_uuid == "pointgoal_with_gps_compass"
     ):
         return observations
-    tokenizer = AutoTokenizer.from_pretrained('jinaai/jina-clip-v1', trust_remote_code=True)
     for i in range(len(observations)):
         if (
             isinstance(observations[i][instruction_sensor_uuid], dict)
@@ -26,8 +25,7 @@ def extract_instruction_tokens(
             instruction = observations[i][
                 instruction_sensor_uuid
             ][text_uuid]
-            tokenized_inputs = tokenizer(instruction)
-            observations[i][instruction_sensor_uuid] = tokenized_inputs['input_ids']
+            observations[i][instruction_sensor_uuid] = instruction
         else:
             break
     return observations

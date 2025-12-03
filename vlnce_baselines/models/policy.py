@@ -3,8 +3,9 @@ from typing import Any
 
 from habitat_baselines.rl.ppo.policy import Policy
 from habitat_baselines.utils.common import CategoricalNet
-
+from habitat import logger
 from vlnce_baselines.models.utils import CustomFixedCategorical
+import torch
 
 
 class ILPolicy(Policy, metaclass=abc.ABCMeta):
@@ -25,19 +26,32 @@ class ILPolicy(Policy, metaclass=abc.ABCMeta):
 
     def act(
         self,
-        observations, padding_mask_encoder, padding_mask_decoder, isCausal,
+        instruction_embedding,
+        rgb_embedding,
+        depth_embedding,
+        prev_actions,
+        padding_mask_encoder,
+        padding_mask_decoder,
+        isCausal,
+        lengths,
         deterministic=False,
     ):
         features = self.net(
-            observations, padding_mask_encoder, padding_mask_decoder, isCausal
+            instruction_embedding,
+            rgb_embedding,
+            depth_embedding,
+            prev_actions,
+            padding_mask_encoder,
+            padding_mask_decoder,
+            isCausal,
         )
+        pos = [l - 1 for l in lengths]
+        features = features[torch.arange(features.size(0)), pos]
         distribution = self.action_distribution(features)
-
         if deterministic:
             action = distribution.mode()
         else:
             action = distribution.sample()
-
         return action
 
     # def get_value(self, *args: Any, **kwargs: Any):
@@ -47,9 +61,15 @@ class ILPolicy(Policy, metaclass=abc.ABCMeta):
     #     raise NotImplementedError
 
     def build_distribution(
-        self, observations, padding_mask_encoder, padding_mask_decoder, isCausal
+        self, instruction_embedding, rgb_embedding, depth_embedding, prev_actions, padding_mask_encoder, padding_mask_decoder, isCausal
     ) -> CustomFixedCategorical:
         features = self.net(
-            observations, padding_mask_encoder, padding_mask_decoder, isCausal
+            instruction_embedding,
+            rgb_embedding,
+            depth_embedding,
+            prev_actions,
+            padding_mask_encoder,
+            padding_mask_decoder,
+            isCausal,
         )
         return self.action_distribution(features)
