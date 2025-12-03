@@ -5,18 +5,19 @@ TORCH_GPU_ID: 0
 NUM_ENVIRONMENTS: 10
 TENSORBOARD_DIR: data/tensorboard_dirs/transformer
 CHECKPOINT_FOLDER: data/checkpoints/transformer
-EVAL_CKPT_PATH_DIR: data/checkpoints/transformer/ckpt.1.pth 
+EVAL_CKPT_PATH_DIR: data/checkpoints/transformer/ckpt.9.pth 
 RESULTS_DIR: data/checkpoints/transformer/evals
 
 EVAL:
   USE_CKPT_CONFIG: False
   SPLIT: val_unseen
+  EPISODE_COUNT: 50
 
 IL:
   epochs: 5
   batch_size: 15
   load_from_ckpt: True
-  ckpt_to_load: "data/checkpoints/transformer/ckpt.2.pth"  # Replace with your specific checkpoint path
+  ckpt_to_load: "data/checkpoints/transformer/ckpt.9.pth"  # Replace with your specific checkpoint path
   is_requeue: True  # Set to True to load optimizer state, epoch, and step_id to continue training
 
   RECOLLECT_TRAINER:

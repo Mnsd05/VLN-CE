@@ -1,4 +1,5 @@
 # Vision-and-Language Navigation in Continuous Environments (VLN-CE)
+Author papers:
 
 [Project Website](https://jacobkrantz.github.io/vlnce/) — [VLN-CE Challenge](https://eval.ai/web/challenges/challenge-page/719) — [RxR-Habitat Challenge](https://ai.google.com/research/rxr/habitat)
 
@@ -15,17 +16,17 @@ Vision and Language Navigation in Continuous Environments (VLN-CE) is an instruc
 
 ## Setup
 
-This project is developed with Python 3.6. If you are using [miniconda](https://docs.conda.io/en/latest/miniconda.html) or [anaconda](https://anaconda.org/), you can create an environment:
+This project is developed with Python 3.8. If you are using [miniconda](https://docs.conda.io/en/latest/miniconda.html) or [anaconda](https://anaconda.org/), you can create an environment:
 
 ```bash
-conda create -n vlnce python=3.6
+conda create -n vlnce python=3.8
 conda activate vlnce
 ```
 
 VLN-CE uses [Habitat-Sim](https://github.com/facebookresearch/habitat-sim/tree/v0.1.7) 0.1.7 which can be [built from source](https://github.com/facebookresearch/habitat-sim/tree/v0.1.7#installation) or installed from conda:
 
 ```bash
-conda install -c aihabitat -c conda-forge habitat-sim=0.1.7 headless
+conda install -c aihabitat -c conda-forge habitat-sim=0.1.7=py3.8_headless_linux_856d4b08c1a2632626bf0d205bf46471a99502b7
 ```
 
 Then install [Habitat-Lab](https://github.com/facebookresearch/habitat-lab/tree/v0.1.7):
@@ -43,11 +44,9 @@ python setup.py develop --all
 Now you can install VLN-CE:
 
 ```bash
-git clone git@github.com:jacobkrantz/VLN-CE.git
-cd VLN-CE
 python -m pip install -r requirements.txt
 ```
-
+However, some dependencies may conflict and we need to install them to the appropriate versions
 ### Data
 
 #### Scenes: Matterport3D
@@ -83,130 +82,7 @@ gdown https://drive.google.com/uc?id=1fo8F4NKgZDH-bPSdVU3cONAkt5EW-tyr
 
 Baseline models encode depth observations using a ResNet pre-trained on PointGoal navigation. Those weights can be downloaded from [here](https://github.com/facebookresearch/habitat-lab/tree/v0.1.7/habitat_baselines/rl/ddppo) (672M). Extract the contents to `data/ddppo-models/{model}.pth`.
 
-#### Episodes: Room-Across-Room (RxR)
-
-Download: [RxR_VLNCE_v0.zip](https://drive.google.com/file/d/145xzLjxBaNTbVgBfQ8e9EsBAV8W-SM0t/view)
-
-About the [Room-Across-Room dataset](https://ai.google.com/research/rxr/) (RxR):
-
-- multilingual instructions (English, Hindi, Telugu)
-- an order of magnitude larger than existing datasets
-- varied paths to break a shortest-path-to-goal assumption
-
-RxR was ported to continuous environments originally for the [RxR-Habitat Challenge](https://ai.google.com/research/rxr/habitat). The dataset has `train`, `val_seen`, `val_unseen`, and `test_challenge` splits with both Guide and Follower trajectories ported. The starter code expects files in this structure:
-
-```graphql
-data/datasets
-├─ RxR_VLNCE_v0
-|   ├─ train
-|   |    ├─ train_guide.json.gz
-|   |    ├─ train_guide_gt.json.gz
-|   |    ├─ train_follower.json.gz
-|   |    ├─ train_follower_gt.json.gz
-|   ├─ val_seen
-|   |    ├─ val_seen_guide.json.gz
-|   |    ├─ val_seen_guide_gt.json.gz
-|   |    ├─ val_seen_follower.json.gz
-|   |    ├─ val_seen_follower_gt.json.gz
-|   ├─ val_unseen
-|   |    ├─ val_unseen_guide.json.gz
-|   |    ├─ val_unseen_guide_gt.json.gz
-|   |    ├─ val_unseen_follower.json.gz
-|   |    ├─ val_unseen_follower_gt.json.gz
-|   ├─ test_challenge
-|   |    ├─ test_challenge_guide.json.gz
-|   ├─ text_features
-|   |    ├─ ...
-```
-
-The baseline models for RxR-Habitat use precomputed BERT instruction features which can be downloaded from [here](https://github.com/google-research-datasets/RxR#downloading-bert-text-features) and saved to `data/datasets/RxR_VLNCE_v0/text_features/rxr_{split}/{instruction_id}_{language}_text_features.npz`.
-
-## RxR-Habitat Challenge
-
-<p align="center">
-  <img width="573" height="360" src="/data/res/rxr_teaser.gif" alt="RxR Challenge Teaser GIF">
-</p>
-
-**NEW: The 2023 RxR-Habitat Challenge is live!**
-
-- Challenge webpage: [ai.google.com/research/rxr/habitat](https://ai.google.com/research/rxr/habitat)
-- Workshop webpage: [embodied-ai.org](https://embodied-ai.org/)
-
-The RxR-Habitat is hosted at the CVPR 2023 [Embodied AI workshop](https://embodied-ai.org/) set for June 19th, 2023. The leaderboard opens for challenge submissions on March 1. For official guidelines, please visit: [ai.google.com/research/rxr/habitat](https://ai.google.com/research/rxr/habitat). We encourage submissions on this dificult task!
-
-The RxR-Habitat Challenge is hosted by Oregon State University, Google Research, and Meta AI. This is the third year of the RxR-Habitat Challenge which previously appeared at the 2021 and 2022 CVPR [EAI workshop](https://embodied-ai.org/cvpr2021).
-
-### Timeline
-
-|               Event               |       Date      |
-|:---------------------------------:|:---------------:|
-|          Challenge Launch         |   Mar 17, 2023  |
-|          Leaderboard Open         |   Mar 20, 2023  |
-|         Leaderboard Closes        |   May 15, 2023  |
-| Workshop and Winners Announcement |   Jun 19, 2023  |
-
-### Generating Submissions
-
-Submissions are made by running an agent locally and submitting a jsonlines file (`.jsonl`) containing the agent's trajectories. Starter code for generating this file is provided in the function `BaseVLNCETrainer.inference()`. Here is an example of generating predictions for English using the Cross-Modal Attention baseline:
-
-```bash
-python run.py \
-  --exp-config vlnce_baselines/config/rxr_baselines/rxr_cma_en.yaml \
-  --run-type inference
-```
-
-If you use different models for different languages, you can merge their predictions with `scripts/merge_inference_predictions.py`. Submissions are only accepted that contain all episodes from all three languages in the `test-challenge` split. Starter code for this challenge was originally hosted in the `rxr-habitat-challenge` branch but is now integrated in `master`.
-
-#### Required Task Configurations
-
-As specified in the [challenge webpage](https://ai.google.com/research/rxr/habitat), submissions to the official challenge must have an action space of 30 degree turn angles, a 0.25m step size, and look up / look down actions of 30 degrees. The agent is given a 480x640 RGBD observation space. An example task configuration is given [here](/habitat_extensions/config/rxr_vlnce_english_task.yaml) which loads the English portion of the dataset.
-
-The CMA baseline model ([config](/vlnce_baselines/config/rxr_baselines/rxr_cma_en.yaml)) is an example of a valid submission. Existing [waypoint models](/vlnce_baselines/config/r2r_waypoint) are not valid due to their panoramic observation space. Such models would need to be adapted to the challenge configuration.
-
-### Baseline Model
-
-The official baseline for the RxR-Habitat Challenge is a monolingual cross-modal attention (CMA) model, labeled `Monolingual CMA Baseline` on the leaderboard. Configuration files for re-training or evaluating this model can be found in [this folder](vlnce_baselines/config/rxr_baselines) under the name `rxr_cma_{en|hi|te}.yaml`. Weights for the pre-trained models: [[en](https://drive.google.com/file/d/1fe0-w6ElGwX5VWtESKSM_20VY7sfn4fV/view?usp=sharing) [hi](https://drive.google.com/file/d/1z84xMJ1LP2NO_jpJjFdymejXQqhU6zZH/view?usp=sharing) [te](https://drive.google.com/file/d/13mGjoKyJaWSJsnoQ-el4oIAlai0l7zfQ/view?usp=sharing)] (196MB each).
-
-### Citing RxR-Habitat Challenge
-
-To cite the challenge, please cite the following papers ([RxR](https://arxiv.org/abs/2010.07954) and [VLN-CE](https://arxiv.org/abs/2004.02857)):
-
-```tex
-@inproceedings{ku2020room,
-  title={Room-Across-Room: Multilingual Vision-and-Language Navigation with Dense Spatiotemporal Grounding},
-  author={Ku, Alexander and Anderson, Peter and Patel, Roma and Ie, Eugene and Baldridge, Jason},
-  booktitle={Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing (EMNLP)},
-  pages={4392--4412},
-  year={2020}
-}
-
-@inproceedings{krantz_vlnce_2020,
-  title={Beyond the Nav-Graph: Vision and Language Navigation in Continuous Environments},
-  author={Jacob Krantz and Erik Wijmans and Arjun Majundar and Dhruv Batra and Stefan Lee},
-  booktitle={European Conference on Computer Vision (ECCV)},
-  year={2020}
- }
-```
-
-## Questions?
-
-Feel free to contact the challenge organizers with any questions, comments, or concerns. The corresponding organizer is Jacob Krantz (@jacobkrantz). You can also open an issue with `[RxR-Habitat]` in the title, which will also notify us.
-
-## VLN-CE Challenge (R2R Data)
-
-The [VLN-CE Challenge](https://eval.ai/web/challenges/challenge-page/719) is live and taking submissions for public test set evaluation. This challenge uses the R2R data ported in the original VLN-CE paper.
-
-To submit to the leaderboard, you must run your agent locally and submit a JSON file containing the generated agent trajectories. Starter code for generating this JSON file is provided in the function `BaseVLNCETrainer.inference()`. Here is an example of generating this file using the pretrained Cross-Modal Attention baseline:
-
-```bash
-python run.py \
-  --exp-config vlnce_baselines/config/r2r_baselines/test_set_inference.yaml \
-  --run-type inference
-```
-
-Predictions must be in a specific format. Please visit the challenge webpage for guidelines.
-
-### Baseline Performance
+### Baseline Performance(Author Baselines)
 
 The baseline model for the VLN-CE task is the cross-modal attention model trained with progress monitoring, DAgger, and augmented data (CMA_PM_DA_Aug). As evaluated on the leaderboard, this model achieves:
 
@@ -235,16 +111,15 @@ For example, a random agent can be evaluated on 10 val-seen episodes of R2R usin
 ```bash
 python run.py --exp-config vlnce_baselines/config/r2r_baselines/nonlearning.yaml --run-type eval
 ```
+For my model, inference is not supported.
 
 For lists of modifiable configuration options, see the default [task config](habitat_extensions/config/default.py) and [experiment config](vlnce_baselines/config/default.py) files.
 
 ### Training Agents
 
-The `DaggerTrainer` class is the standard trainer and supports teacher forcing or dataset aggregation (DAgger). This trainer saves trajectories consisting of RGB, depth, ground-truth actions, and instructions to disk to avoid time spent in simulation.
-
 The `RecollectTrainer` class performs teacher forcing using the ground truth trajectories provided in the dataset rather than a shortest path expert. Also, this trainer does not save episodes to disk, instead opting to recollect them in simulation.
 
-Both trainers inherit from `BaseVLNCETrainer`.
+It inherit from `BaseVLNCETrainer`.
 
 ### Evaluating Agents
 

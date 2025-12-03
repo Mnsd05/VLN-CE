@@ -298,7 +298,6 @@ class BaseVLNCETrainer(BaseILTrainer):
         )
         self.policy.eval()
 
-        # Init encoders
         instruction_encoder = InstructionEncoder(self.config).to(self.device)
         depth_encoder = VlnResnetDepthEncoder(
             observation_space,
@@ -356,7 +355,6 @@ class BaseVLNCETrainer(BaseILTrainer):
                 depth_history[i] = torch.cat([depth_history[i], depth_embedding[i:i+1]], dim=0)
                 action_history[i] = torch.cat([action_history[i], prev_actions[i]])
             
-            # Pad and stack history for model input
             lengths = [h.size(0) for h in rgb_history]
             max_len = max(lengths)
             
@@ -406,13 +404,11 @@ class BaseVLNCETrainer(BaseILTrainer):
                 stats_episodes[ep_id] = infos[i]
                 observations[i] = envs.reset_at(i)[0]
 
-                # Handle new episode
                 instruction_embedding = instruction_encoder(batch)
                 padding_mask_encoder[i] = torch.zeros((200, 200)).to(self.device)
                 len_non_zero = (batch["instruction"][i] != 0).sum()
                 padding_mask_encoder[i, :len_non_zero, :len_non_zero] = 1
 
-                # Reset history for this env
                 rgb_history[i] = torch.zeros(0, config.MODEL.RGB_ENCODER.hidden_size, device=self.device)
                 depth_history[i] = torch.zeros(0, config.MODEL.DEPTH_ENCODER.hidden_size, device=self.device)
                 action_history[i] = torch.zeros(0, dtype=torch.long, device=self.device)
@@ -456,7 +452,7 @@ class BaseVLNCETrainer(BaseILTrainer):
                 if next_episodes[i].episode_id in stats_episodes:
                     envs_to_pause.append(i)
 
-            # Pause envs logic inlined to handle mixed list/tensor types
+            # Pause envs 
             if len(envs_to_pause) > 0:
                 state_index = list(range(envs.num_envs))
                 for idx in reversed(envs_to_pause):

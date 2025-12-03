@@ -44,10 +44,7 @@ class TransformerPolicy(ILPolicy):
 
 
 class TransformerNet(Net):
-    """A baseline sequence to sequence network that performs single modality
-    encoding of the instruction, RGB, and depth observations. These encodings
-    are concatentated and fed to an RNN. Finally, a distribution over discrete
-    actions (FWD, L, R, STOP) is produced.
+    """A baseline transformer network 
     """
 
     def __init__(
@@ -98,7 +95,7 @@ class DotProductAttention(nn.Module):
     def forward(
         self, Q: Tensor, K: Tensor, V: Tensor, padding_mask: Tensor,  isCausal: bool = False
     ) -> Tensor:
-        """Scaled dot-product attention with an optional mask.
+        """Scaled dot-product attention
         Args:
             query: [Batch, H, T1, d_in]
             key: [Batch, H, T2, d_in]
@@ -134,12 +131,7 @@ class MultiHeadSelfAttention(nn.Module):
         num_heads: int, 
         dropout_p: float = 0.0,
     ) -> None:
-        """The residual connection of Vaswani et al is not used here. The
-        residual makes sense if self-attention is being used.
-        Args:
-            d_in (int): dimension of the input vector
-            num_heads (int): number of attention heads
-        """ 
+
         super().__init__()
         self.num_heads = num_heads
         self.q_linear = nn.Linear(d_in, d_in, bias=False)
@@ -152,12 +144,7 @@ class MultiHeadSelfAttention(nn.Module):
         self, x: Tensor, padding_mask: Tensor, 
         isCausal: bool = False
     ) -> Tensor:
-        """Performs multihead scaled dot product attention for some Q, K, V.
-        Args:
-            x: [Batch, T1, d_in]
-            padding_mask: [Batch, T1, T2]
-            isCausal: bool, whether to apply causal mask
-        """
+
         # Shape (B, T1, d_in)
         Q = self.q_linear(x)
         # Shape (B, T2, d_in)
@@ -185,11 +172,7 @@ class MultiHeadCrossAttention(nn.Module):
         num_heads: int,
         dropout_p: float = 0.0
     ) -> None:
-        """
-        Args:
-            d_in (int): dimension of the input vector
-            num_heads (int): number of attention heads
-        """
+
         super().__init__()
         self.num_heads = num_heads
         self.q_linear = nn.Linear(d_q_in, d_q_in, bias=False)
